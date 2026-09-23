@@ -12,6 +12,8 @@
  * que faltarem.
  */
 
+import { diaLocal, pastaDoDia } from "./pdf/formato";
+
 const GRAPH = "https://graph.microsoft.com/v1.0";
 export const ESCOPOS = "offline_access User.Read Files.ReadWrite.All";
 /** Cookie que liga o pedido de autorização à resposta da Microsoft (proteção contra CSRF). */
@@ -59,14 +61,9 @@ export function configOneDrive(): ConfigOneDrive | null {
 
 /** Subpastas do laudo, na data e fuso da fábrica: ["2026", "Setembro", "23-09"]. */
 export function subpastasDoDia(data: Date): string[] {
-  const fuso = process.env.FUSO_HORARIO || "America/Sao_Paulo";
-  const partes = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", { timeZone: fuso, year: "numeric", month: "numeric", day: "numeric" })
-      .formatToParts(data)
-      .map((p) => [p.type, p.value]),
-  );
-  const mes = Number(partes.month);
-  return [partes.year, MESES[mes - 1], `${partes.day.padStart(2, "0")}-${String(mes).padStart(2, "0")}`];
+  const dia = diaLocal(data);
+  const [ano, mes] = dia.split("-");
+  return [ano, MESES[Number(mes) - 1], pastaDoDia(dia)];
 }
 
 // ---------- OAuth ----------

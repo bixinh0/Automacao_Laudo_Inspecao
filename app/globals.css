@@ -529,3 +529,75 @@ textarea {
 .cartao > p:first-child {
   margin-top: 0;
 }
+
+/* ZIP do dia */
+.grupo-dia {
+  margin-bottom: 18px;
+}
+.grupo-dia-titulo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.grupo-dia-titulo h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.grupo-dia-titulo h2 span {
+  color: var(--cinza);
+  font-weight: 400;
+}
+.baixar-zip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.baixar-zip button {
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.95rem;
+  min-height: 44px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 10px;
+  background: var(--azul);
+  color: var(--branco);
+  cursor: pointer;
+}
+.baixar-zip button:disabled {
+  background: #7d8fa3;
+  cursor: progress;
+}
+.baixar-zip .alerta {
+  font-size: 0.85rem;
+}
+.zip-outra-data {
+  margin-top: 20px;
+  padding: 14px;
+  background: var(--branco);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+}
+.zip-outra-data label {
+  display: block;
+  font-weight: 700;
+  color: var(--marinho);
+  margin-bottom: 8px;
+}
+.zip-outra-data > div {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.zip-outra-data input {
+  font: inherit;
+  padding: 9px 10px;
+  min-height: 44px;
+  border: 2px solid var(--borda);
+  border-radius: 10px;
+}

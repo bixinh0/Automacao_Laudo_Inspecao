@@ -2,6 +2,7 @@ import "server-only";
 import { processarImagem } from "./imagem";
 import { acessoOneDrive } from "./integracao";
 import { enviarArquivo, subpastasDoDia } from "./onedrive";
+import { diaLocal, nomesUnicos } from "./pdf/formato";
 import { gerarPdfLaudo, type ImagemPdf } from "./pdf/gerar";
 import type { TipoImagem } from "./regras";
 import { BUCKET, supabase } from "./supabase";
@@ -278,6 +279,35 @@ export async function emitirLaudo(laudoId: string, esperado: { formularios: numb
     .single<LinhaLaudo>();
   if (error) throw error;
   return paraLaudo(data);
+}
+
+/** Laudos emitidos num dia (AAAA-MM-DD, fuso da fábrica), do mais antigo ao mais novo. */
+export async function listarLaudosDoDia(dia: string): Promise<Laudo[]> {
+  // Busca uma janela folgada em UTC e filtra pelo dia local, sem depender do fuso.
+  const meiaNoiteUtc = Date.parse(`${dia}T00:00:00Z`);
+  const { data, error } = await supabase()
+    .from("laudo")
+    .select()
+    .not("caminho_pdf", "is", null)
+    .gte("criado_em", new Date(meiaNoiteUtc - 86400000).toISOString())
+    .lt("criado_em", new Date(meiaNoiteUtc + 2 * 86400000).toISOString())
+    .order("criado_em", { ascending: true })
+    .returns<LinhaLaudo[]>();
+  if (error) throw error;
+  return data.map(paraLaudo).filter((l) => diaLocal(new Date(l.criadoEm)) === dia);
+}
+
+/** Links temporários (10 min) para o navegador baixar vários PDFs e montar o ZIP. */
+export async function linksParaZip(laudos: Laudo[]): Promise<{ nome: string; url: string }[]> {
+  if (laudos.length === 0) return [];
+  const caminhos = laudos.map((l) => l.caminhoPdf!);
+  const { data, error } = await supabase().storage.from(BUCKET).createSignedUrls(caminhos, 600);
+  if (error) throw error;
+  const nomes = nomesUnicos(laudos.map((l) => nomeArquivoPdf(l.numeroOP)));
+  return data.map((d, i) => {
+    if (!d.signedUrl) throw new Error(`PDF não encontrado: ${caminhos[i]}`);
+    return { nome: nomes[i], url: d.signedUrl };
+  });
 }
 
 /** Validade do link de download do PDF gerado a cada clique em "Baixar PDF". */

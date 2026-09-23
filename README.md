@@ -18,7 +18,7 @@ formulário preenchido e as peças acabadas, e recebe o PDF pronto.
 | Entrada | `/entrar` | Senha de acesso. Todas as outras telas e APIs exigem a senha. |
 | Envio | `/` | Número da OP, fotos do formulário, fotos das peças, observações. Única tela usada no chão de fábrica. |
 | Confirmação | `/laudos/{id}` | Mensagem de sucesso, número da OP e botão **Baixar PDF**. |
-| Histórico | `/historico` | Laudos emitidos, com busca por número da OP. |
+| Histórico | `/historico` | Laudos emitidos, agrupados por dia, com busca por número da OP e ZIP de cada dia. |
 
 ## Estrutura do PDF
 
@@ -94,7 +94,17 @@ Cores e símbolo ficam em `lib/marca.ts` e são usados pelo site (`components/Lo
 PDF (`lib/pdf/LaudoPdf.tsx`). O símbolo (duas correias sobre três polias formando o "V") é desenhado em vetor, o
 que o mantém nítido em qualquer tamanho. O nome VANDERHULST é composto em fonte negrito com espaçamento.
 
-## Envio automático ao OneDrive / SharePoint (opcional)
+## ZIP dos laudos do dia
+
+No **Histórico**, cada dia tem o botão **Baixar dd-mm.zip**; no fim da página, **ZIP de outra data** baixa qualquer
+dia. O arquivo `23-09.zip` contém a pasta `23-09/` com todos os PDFs emitidos naquele dia (fuso de São Paulo), em
+ordem de emissão; a mesma OP repetida no dia vira `laudo-OP-63335 (2).pdf`. É só extrair e arrastar a pasta para
+`Checklist Embarque Controlado/{ano}/{mês}/` no drive.
+
+O ZIP é montado no navegador: os PDFs vêm direto do Supabase por links temporários (10 min), sem passar pelo
+limite de 4,5 MB da Vercel e sem ocupar espaço extra no Storage.
+
+## Envio automático ao OneDrive / SharePoint (opcional, exige registro de app pela TI)
 
 Cada laudo gerado é copiado para uma pasta do SharePoint, por exemplo
 `Qualidade - Documentos/Checklist Embarque Controlado/2026/Setembro/23-09/laudo-OP-63335.pdf`.
@@ -239,12 +249,14 @@ app/
   api/entrar, api/sair           login e logout
   (app)/onedrive/page.tsx        conectar OneDrive e reenviar pendentes
   api/onedrive/…                 conectar, retorno da Microsoft, pendentes, desconectar
+  api/laudos/zip                 lista os PDFs de um dia com links temporários
 components/FormularioEnvio.tsx   formulário (câmera, miniaturas, progresso, retomada)
 lib/layout.ts                    alocação procedural das fotos (função pura, testada)
 lib/imagem.ts                    sharp: EXIF, redução, JPEG, SHA-256
 lib/pdf/                         documento @react-pdf/renderer
 lib/marca.ts                     cores e símbolo Vanderhulst
 lib/acesso.ts                    senha de acesso (cookie)
+components/BaixarZipDia.tsx      ZIP dos laudos de um dia, montado no navegador
 lib/onedrive.ts                  Microsoft Graph: autorização, pastas e envio
 lib/integracao.ts                autorização do OneDrive guardada (cifrada) no banco
 lib/laudos.ts                    acesso ao banco e ao Storage
