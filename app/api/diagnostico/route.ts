@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { explicarErroConfiguracao } from "@/lib/api";
-import { BUCKET, supabase } from "@/lib/supabase";
+import { BUCKET, supabase, urlSupabase } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,8 +16,8 @@ function falha(e: unknown): Resultado {
  * Confere a configuração sem expor segredos: abra /api/diagnostico no navegador.
  */
 export async function GET() {
-  const url = process.env.SUPABASE_URL ?? "";
-  const chave = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  const url = urlSupabase();
+  const chave = (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
   const tipoChave = !chave
     ? "ausente"
     : chave.startsWith("sb_secret_")
@@ -30,7 +30,7 @@ export async function GET() {
 
   const resultado: Record<string, unknown> = {
     variaveis: {
-      SUPABASE_URL: url ? url.replace(/^(https?:\/\/[^/]+).*$/, "$1") : "ausente",
+      SUPABASE_URL: url || "ausente",
       SUPABASE_SECRET_KEY: tipoChave,
     },
   };

@@ -26,6 +26,9 @@ export function explicarErroConfiguracao(e: unknown): string | null {
   if (/Bucket not found/i.test(msg)) {
     return 'Bucket "laudos" não encontrado no Supabase Storage: rode a migration no SQL Editor.';
   }
+  if (/Invalid path specified/i.test(msg)) {
+    return "SUPABASE_URL com caminho a mais: use só https://xxxx.supabase.co (sem /rest/v1) na Vercel e faça Redeploy.";
+  }
   if (/fetch failed|ENOTFOUND|getaddrinfo|Invalid URL/i.test(msg)) {
     return "Não foi possível conectar ao Supabase: confira SUPABASE_URL (https://xxxx.supabase.co) na Vercel e faça Redeploy.";
   }
