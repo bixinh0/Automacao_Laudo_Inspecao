@@ -1,23 +1,36 @@
 import { after, NextResponse } from "next/server";
 import { erro, lerJson, tratarErro } from "@/lib/api";
 import { buscarLaudo, emitirLaudo, enviarLaudoAoOneDrive, urlDownloadPdf } from "@/lib/laudos";
+import { limparArmazenamento } from "@/lib/manutencao";
 import { configOneDrive } from "@/lib/onedrive";
+import { MAX_FOLHAS_FORMULARIO, MAX_FOTOS_PECAS } from "@/lib/regras";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-/** Gera o PDF do laudo a partir das imagens já processadas. */
+/** Processa as fotos já enviadas ao Storage e gera o PDF do laudo. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const corpo = await lerJson(req);
   const formularios = Number(corpo.formularios);
   const pecas = Number(corpo.pecas);
-  if (!Number.isInteger(formularios) || !Number.isInteger(pecas)) return erro("Quantidade de fotos inválida.");
+  if (
+    !Number.isInteger(formularios) ||
+    !Number.isInteger(pecas) ||
+    formularios > MAX_FOLHAS_FORMULARIO ||
+    pecas > MAX_FOTOS_PECAS
+  ) {
+    return erro("Quantidade de fotos inválida.");
+  }
 
   try {
     const laudo = await emitirLaudo(id, { formularios, pecas });
-    // Cópia para o OneDrive depois da resposta: não atrasa a confirmação na tela.
-    if (configOneDrive() && !laudo.onedriveEnviadoEm) after(() => enviarLaudoAoOneDrive(laudo.id));
+    // Depois da resposta, sem atrasar a confirmação na tela: cópia para o OneDrive
+    // (se configurado) e só então a limpeza, que pode apagar PDFs antigos.
+    after(async () => {
+      if (configOneDrive() && !laudo.onedriveEnviadoEm) await enviarLaudoAoOneDrive(laudo.id);
+      await limparArmazenamento();
+    });
     return NextResponse.json({ id: laudo.id, numeroOP: laudo.numeroOP });
   } catch (e) {
     return tratarErro(e);

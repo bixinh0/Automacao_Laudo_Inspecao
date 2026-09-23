@@ -62,6 +62,15 @@ export async function GET() {
     checagens["url de envio assinada"] = falha(e);
   }
 
+  try {
+    const { error } = await supabase().rpc("uso_armazenamento_laudos");
+    checagens["migration 0003 (limpeza automática)"] = error
+      ? { ok: false, detalhe: "Rode supabase/migrations/0003_capacidade.sql no SQL Editor." }
+      : { ok: true, detalhe: "ok" };
+  } catch (e) {
+    checagens["migration 0003 (limpeza automática)"] = falha(e);
+  }
+
   resultado.checagens = checagens;
   const tudoOk = Object.values(checagens).every((c) => c.ok);
   resultado.conclusao = tudoOk ? "Tudo certo." : "Corrija os itens com ok: false.";

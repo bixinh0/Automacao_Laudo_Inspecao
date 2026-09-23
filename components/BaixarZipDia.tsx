@@ -21,7 +21,7 @@ export default function BaixarZipDia({ dia, rotulo }: { dia: string; rotulo?: st
       if (!resposta.ok) throw new Error(lista.erro || `Falha no servidor (HTTP ${resposta.status}).`);
       const { pasta, arquivos } = lista as { pasta: string; arquivos: { nome: string; url: string }[] };
       if (arquivos.length === 0) {
-        setEstado({ texto: "Nenhum laudo emitido nesse dia.", erro: true });
+        setEstado({ texto: "Nenhum PDF disponível nesse dia.", erro: true });
         return;
       }
 

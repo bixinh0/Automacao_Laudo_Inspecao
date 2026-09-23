@@ -1,6 +1,7 @@
 import Link from "next/link";
 import BaixarZipDia, { BaixarZipOutraData } from "@/components/BaixarZipDia";
 import { listarLaudos, type Laudo } from "@/lib/laudos";
+import { usoArmazenamento } from "@/lib/manutencao";
 import { configOneDrive } from "@/lib/onedrive";
 import { diaLocal, formatarDataHora, pastaDoDia, rotuloDoDia } from "@/lib/pdf/formato";
 
@@ -18,7 +19,7 @@ function agruparPorDia(laudos: Laudo[]) {
 export default async function PaginaHistorico({ searchParams }: { searchParams: Promise<{ op?: string }> }) {
   const { op = "" } = await searchParams;
   const busca = op.replace(/\D/g, "").slice(0, 8);
-  const laudos = await listarLaudos(busca);
+  const [laudos, uso] = await Promise.all([listarLaudos(busca), usoArmazenamento()]);
   const comOneDrive = Boolean(configOneDrive());
   const hoje = diaLocal(new Date());
 
@@ -28,6 +29,18 @@ export default async function PaginaHistorico({ searchParams }: { searchParams: 
         <h1>Histórico de laudos</h1>
         {comOneDrive && <Link href="/onedrive">OneDrive</Link>}
       </div>
+      {uso && (
+        <div className="uso-espaco">
+          <div className="trilho" role="progressbar" aria-valuenow={Math.round((uso.bytes / uso.limite) * 100)} aria-valuemin={0} aria-valuemax={100}>
+            <div className="preenchimento" style={{ width: `${Math.min(100, (uso.bytes / uso.limite) * 100)}%` }} />
+          </div>
+          <p className="ajuda">
+            Espaço: {Math.round(uso.bytes / 1048576)} MB de {Math.round(uso.limite / 1048576)} MB
+            {uso.maisAntigo ? ` · PDFs disponíveis desde ${formatarDataHora(new Date(uso.maisAntigo)).split(" às")[0]}` : ""}. Quando
+            enche, os PDFs mais antigos são apagados: baixe o ZIP do dia e guarde no drive.
+          </p>
+        </div>
+      )}
       <form className="busca" role="search">
         <input
           type="search"
@@ -73,7 +86,13 @@ export default async function PaginaHistorico({ searchParams }: { searchParams: 
                           </span>
                         ))}
                     </div>
-                    <a href={`/api/laudos/${l.id}/pdf`}>Baixar PDF</a>
+                    {l.pdfRemovidoEm ? (
+                      <span className="pdf-removido" title="Apagado para liberar espaço; a cópia está no drive.">
+                        PDF arquivado
+                      </span>
+                    ) : (
+                      <a href={`/api/laudos/${l.id}/pdf`}>Baixar PDF</a>
+                    )}
                   </li>
                 ))}
               </ul>

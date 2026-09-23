@@ -1,6 +1,7 @@
 import { Circle, Document, Image, Line, Page, StyleSheet, Svg, Text, View } from "@react-pdf/renderer";
 import { alocarFotos, contain } from "../layout";
 import { MARCA, SIMBOLO } from "../marca";
+import { CODIGO_FORMULARIO } from "../regras";
 import { formatarDataHora } from "./formato";
 import {
   ALTURA_CABECALHO,
@@ -25,7 +26,7 @@ export interface DadosLaudoPdf {
   numeroOP: string;
   observacoes: string | null;
   emitidoEm: Date;
-  /** Folhas do formulário FM PRO 001 01, na ordem. */
+  /** Folhas do formulário de inspeção, na ordem. */
   formularios: ImagemPdf[];
   /** Fotos das peças acabadas, na ordem de envio. */
   pecas: ImagemPdf[];
@@ -161,7 +162,7 @@ function PaginaIdentificacao({ dados }: { dados: DadosLaudoPdf }) {
         <Marca altura={40} cor="#ffffff" tamanhoNome={20} />
         <View>
           <Text style={s.faixaTitulo}>LAUDO DE INSPEÇÃO DE PRODUÇÃO</Text>
-          <Text style={s.faixaSub}>Peças acabadas · Ref. FM PRO 001 01</Text>
+          <Text style={s.faixaSub}>Peças acabadas · Ref. {CODIGO_FORMULARIO}</Text>
         </View>
       </View>
       <View style={s.faixaFina} />
@@ -181,7 +182,7 @@ function PaginaIdentificacao({ dados }: { dados: DadosLaudoPdf }) {
         <View style={s.secao}>
           <Text style={s.tituloSecao}>CONTEÚDO DO LAUDO</Text>
           <View style={s.tabelaLinha}>
-            <Text style={s.tabelaRotulo}>Formulário FM PRO 001 01</Text>
+            <Text style={s.tabelaRotulo}>Formulário {CODIGO_FORMULARIO}</Text>
             <Text style={s.tabelaValor}>{plural(dados.formularios.length, "folha", "folhas")}</Text>
           </View>
           <View style={s.tabelaLinha}>
@@ -212,7 +213,7 @@ function PaginaFormulario({ imagem, folha, numeroOP }: { imagem: ImagemPdf; folh
   return (
     <Page size="A4" orientation={paisagem ? "landscape" : "portrait"} style={[s.pagina, { padding: MARGEM_FORMULARIO }]}>
       <View style={s.tituloFormulario}>
-        <Text style={s.tituloFormularioTexto}>Formulário FM PRO 001 01 — folha {folha}</Text>
+        <Text style={s.tituloFormularioTexto}>Formulário {CODIGO_FORMULARIO} — folha {folha}</Text>
         <Marca altura={13} cor={C.azul} tamanhoNome={8} />
       </View>
       <View style={{ width: caixaLargura, height: caixaAltura, alignItems: "center" }}>
@@ -272,7 +273,7 @@ export function LaudoPdf({ dados }: { dados: DadosLaudoPdf }) {
     <Document
       title={`Laudo de Inspeção — OP ${dados.numeroOP}`}
       author="Vanderhulst"
-      subject="Laudo de Inspeção de Produção (FM PRO 001 01)"
+      subject={`Laudo de Inspeção de Produção (${CODIGO_FORMULARIO})`}
       creator="Vanderhulst · Automação Laudo de Inspeção"
       producer="Vanderhulst · Automação Laudo de Inspeção"
       language="pt-BR"

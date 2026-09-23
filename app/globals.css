@@ -601,3 +601,20 @@ textarea {
   border: 2px solid var(--borda);
   border-radius: 10px;
 }
+
+/* Espaço de armazenamento */
+.uso-espaco {
+  margin-bottom: 12px;
+}
+.uso-espaco .trilho {
+  height: 8px;
+}
+.uso-espaco .ajuda {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+}
+.pdf-removido {
+  font-size: 0.85rem;
+  color: var(--cinza);
+  white-space: nowrap;
+}

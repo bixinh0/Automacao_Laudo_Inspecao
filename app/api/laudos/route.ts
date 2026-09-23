@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { erro, lerJson, tratarErro } from "@/lib/api";
 import { criarLaudo, criarUrlEnvio } from "@/lib/laudos";
-import { MAX_FOLHAS_FORMULARIO, MAX_FOTOS_PECAS, MAX_OBSERVACOES, opValida, TIPOS, type TipoImagem } from "@/lib/regras";
+import { CODIGO_FORMULARIO, MAX_FOLHAS_FORMULARIO, MAX_FOTOS_PECAS, MAX_OBSERVACOES, opValida, TIPOS, type TipoImagem } from "@/lib/regras";
 
 export const runtime = "nodejs";
 
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   const contar = (t: TipoImagem) => itens.filter((i) => i.tipo === t).length;
   const nForm = contar("FORMULARIO");
   const nPecas = contar("PECA");
-  if (nForm < 1) return erro("Anexe a foto do formulário FM PRO 001 01.");
+  if (nForm < 1) return erro(`Anexe a foto do formulário ${CODIGO_FORMULARIO}.`);
   if (nPecas < 1) return erro("Anexe ao menos uma foto das peças.");
   if (nForm > MAX_FOLHAS_FORMULARIO) return erro(`No máximo ${MAX_FOLHAS_FORMULARIO} folhas de formulário.`);
   if (nPecas > MAX_FOTOS_PECAS) return erro(`No máximo ${MAX_FOTOS_PECAS} fotos de peças por laudo.`);

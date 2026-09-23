@@ -1,7 +1,7 @@
 # Automação do Laudo de Inspeção — Vanderhulst
 
 Aplicação web que monta automaticamente o **Laudo de Inspeção de Produção** (formulário
-FM PRO 001 01) em PDF. O operador abre o site no celular, digita o número da OP, fotografa o
+FM QUA 004 01 rev2) em PDF. O operador abre o site no celular, digita o número da OP, fotografa o
 formulário preenchido e as peças acabadas, e recebe o PDF pronto.
 
 - Nada para instalar: roda no navegador do celular ou do computador.
@@ -23,7 +23,7 @@ formulário preenchido e as peças acabadas, e recebe o PDF pronto.
 ## Estrutura do PDF
 
 1. **Identificação** — OP em destaque, data e hora da emissão, resumo do conteúdo e observações (a seção é omitida se estiver vazia).
-2. **Formulário FM PRO 001 01** — uma página por foto ("folha 1", "folha 2"…), com margens mínimas. A página
+2. **Formulário FM QUA 004 01 rev2** — uma página por foto ("folha 1", "folha 2"…), com margens mínimas. A página
    fica em retrato ou paisagem conforme a foto, para o formulário sair o maior possível.
 3. **Registro fotográfico das peças** — grade procedural, com cabeçalho da OP repetido em cada página.
 
@@ -49,15 +49,18 @@ formulário preenchido e as peças acabadas, e recebe o PDF pronto.
 
 Exemplos: 15 fotos → 9 + 6; 30 fotos → 9 + 9 + 9 + 3.
 
-## Processamento das imagens (`lib/imagem.ts`)
+## Processamento das imagens (`lib/reduzirFoto.ts` e `lib/imagem.ts`)
 
-- Rotação corrigida pelos metadados EXIF (foto tirada em pé sai em pé).
-- Redução sem ampliar: **formulário até 2000 px** no maior lado, JPEG qualidade 85 (legibilidade da escrita à
-  mão); **peças até 1600 px**, JPEG qualidade 80.
-- Metadados (EXIF, GPS) descartados.
-- **SHA-256** calculado no momento do upload e gravado no banco. O hash é do arquivo JPEG que fica guardado no
-  Storage, o que permite conferir depois que ele não foi alterado. A foto original não é mantida (não caberia no
-  plano gratuito).
+- **No celular, antes do envio**: a foto é reduzida ao tamanho que o laudo usa — **formulário até 2000 px**,
+  **peças até 1280 px** no maior lado. Uma foto de 3–6 MB vira ~0,3–1 MB, e o envio fica várias vezes mais rápido
+  na rede da fábrica. Se o navegador não conseguir abrir o formato, envia o original.
+- **No servidor (sharp)**: rotação corrigida pelos metadados EXIF (foto tirada em pé sai em pé), redução sem
+  ampliar, JPEG qualidade 85 (formulário, pela legibilidade da escrita à mão) ou 78 (peças), metadados (EXIF, GPS)
+  descartados.
+- **SHA-256** de cada imagem calculado no processamento e gravado no banco (tabela `imagem`). O hash é do JPEG
+  exatamente como embutido no PDF.
+- **Só o PDF é guardado**: as fotos ficam embutidas nele (`imagem.caminho_arquivo` aponta para o PDF). Guardar as
+  fotos à parte dobraria o espaço e não caberia no plano gratuito com ~600 laudos/mês.
 
 ## Como funciona o envio
 
@@ -68,14 +71,16 @@ navegador **direto para o Supabase Storage**, por URLs de envio assinadas:
 Navegador                       Servidor (Vercel)                  Supabase
    │ POST /api/laudos  ───────────► cria o laudo ─────────────────► tabela laudo
    │ ◄──────────────── URLs assinadas (uma por foto)
-   │ PUT foto original ────────────────────────────────────────────► Storage (brutos/)
-   │ POST /api/laudos/{id}/imagens ► baixa, gira, reduz, hash ─────► Storage (imagens/) + tabela imagem
+   │ reduz a foto no celular e envia (PUT) ────────────────────────► Storage (brutos/)
    │   … 3 fotos por vez, com barra de progresso …
-   │ POST /api/laudos/{id}/pdf ────► monta o PDF ──────────────────► Storage + laudo.caminho_pdf
+   │ POST /api/laudos/{id}/pdf ────► baixa as fotos, gira, reduz,
+   │                                 hash, monta o PDF ────────────► Storage (PDF) + tabela imagem
+   │                                 apaga as fotos brutas;         + laudo.caminho_pdf
+   │                                 depois: limpeza automática
    │ GET  /api/laudos/{id}/pdf ────► redireciona para link temporário do PDF
 ```
 
-Se a conexão cair no meio, **Tentar novamente** continua de onde parou (as fotos já processadas não são reenviadas).
+Se a conexão cair no meio, **Tentar novamente** continua de onde parou (as fotos já enviadas não são reenviadas).
 O navegador nunca recebe chave do Supabase. O link de download do PDF é gerado a cada clique em
 **Baixar PDF** e vale 24 horas (`VALIDADE_DOWNLOAD_S` em `lib/laudos.ts`).
 
@@ -93,6 +98,30 @@ O navegador nunca recebe chave do Supabase. O link de download do PDF é gerado 
 Cores e símbolo ficam em `lib/marca.ts` e são usados pelo site (`components/Logo.tsx`, `app/globals.css`) e pelo
 PDF (`lib/pdf/LaudoPdf.tsx`). O símbolo (duas correias sobre três polias formando o "V") é desenhado em vetor, o
 que o mantém nítido em qualquer tamanho. O nome VANDERHULST é composto em fonte negrito com espaçamento.
+
+## Capacidade: ~600 laudos por mês no plano gratuito
+
+Dimensionado para ~600 laudos/mês com 1 foto do formulário e 3 das peças (valores aproximados, com fotos reais):
+
+| | Por laudo | 600 laudos/mês | Limite gratuito do Supabase |
+|---|---|---|---|
+| Enviado pelo celular (entrada) | ~1,5 MB | ~0,9 GB | entrada não é cobrada |
+| Tráfego de saída (processar + baixar PDF + ZIP) | ~4 MB | ~2,4 GB | ~5 GB/mês |
+| Armazenamento (só o PDF) | ~1,2 MB | ~0,7 GB por mês, acumulando | 1 GB no total |
+| Banco de dados | < 1 KB | < 1 MB | 500 MB |
+
+O armazenamento é o único limite que acumula. Por isso existe a **limpeza automática** (`lib/manutencao.ts`):
+depois de cada laudo emitido, se o bucket passar de `LIMITE_ARMAZENAMENTO_MB` (padrão **850 MB**), os PDFs mais
+antigos são apagados até voltar a caber. O laudo continua no histórico como **PDF arquivado**, com os hashes das
+fotos no banco. Com 600 laudos/mês, cada PDF fica disponível por **cerca de 5 semanas** — baixe o **ZIP do dia**
+(ou da semana, dia a dia) e guarde no drive, que passa a ser o arquivo definitivo. O histórico mostra o espaço em
+uso e desde quando há PDFs disponíveis. A limpeza também apaga envios abandonados (fotos enviadas sem gerar o PDF)
+com mais de um dia.
+
+Requer a migration [`0003_capacidade.sql`](supabase/migrations/0003_capacidade.sql); sem ela, nada é apagado.
+
+Na Vercel, o volume é pequeno: ~1 s de processamento por laudo (≈ 10 min/mês de CPU) e as fotos e PDFs não passam
+por ela.
 
 ## ZIP dos laudos do dia
 
@@ -155,14 +184,16 @@ SharePoint como criados por essa pessoa. A autorização se renova com o uso; se
 5. No site: **Histórico → OneDrive → Conectar OneDrive**, entre com a conta que tem acesso à pasta e aceite.
    Em seguida, **Enviar pendentes agora** manda os laudos já emitidos.
 
-## Modelo de dados (`supabase/migrations/0001_estrutura_inicial.sql`)
+## Modelo de dados (`supabase/migrations/`)
 
 ```
-laudo   id, numero_op, observacoes (nulo), criado_em, caminho_pdf (preenchido após a geração)
-imagem  id, laudo_id, tipo (FORMULARIO | PECA), caminho_arquivo, hash_sha256, largura, altura, ordem
+laudo   id, numero_op, observacoes (nulo), criado_em, caminho_pdf (preenchido após a geração),
+        pdf_removido_em (limpeza automática), onedrive_* (opcional)
+imagem  id, laudo_id, tipo (FORMULARIO | PECA), caminho_arquivo (o PDF onde está embutida), hash_sha256,
+        largura, altura, ordem
 ```
 
-Imagens e PDFs ficam no bucket privado `laudos`; no banco vão só caminho, hash e metadados. As fases seguintes
+Os PDFs ficam no bucket privado `laudos`; no banco vão só caminho, hash e metadados. As fases seguintes
 (dados de inspeção digitados, transcrição por IA com revisão, validação de tolerâncias) entram como tabelas e
 colunas novas, sem alterar as existentes — ver comentário no fim da migration.
 
@@ -182,7 +213,9 @@ Tenha este código num repositório seu no GitHub (pode ser privado).
    **South America (São Paulo)** e anote a senha do banco (não será usada pela aplicação).
 2. No menu lateral, abra **SQL Editor** → **New query**, cole todo o conteúdo de
    [`supabase/migrations/0001_estrutura_inicial.sql`](supabase/migrations/0001_estrutura_inicial.sql) e clique em **Run**.
-   Isso cria as tabelas `laudo` e `imagem` e o bucket privado `laudos`.
+   Isso cria as tabelas `laudo` e `imagem` e o bucket privado `laudos`. Depois, numa nova query, faça o mesmo
+   com [`0003_capacidade.sql`](supabase/migrations/0003_capacidade.sql) (limpeza automática). A `0002` só é
+   necessária para o envio ao OneDrive.
 3. Confira em **Storage** que o bucket `laudos` aparece, marcado como privado.
 4. Em **Project Settings → API** (ou **API Keys**), copie:
    - a **Project URL** (`https://xxxx.supabase.co`);
@@ -201,6 +234,7 @@ Tenha este código num repositório seu no GitHub (pode ser privado).
    | `SUPABASE_SECRET_KEY` | chave secreta do passo 2.4 |
    | `SENHA_ACESSO` | senha que os operadores vão digitar para entrar no site |
    | `FUSO_HORARIO` | (opcional) padrão `America/Sao_Paulo` |
+   | `LIMITE_ARMAZENAMENTO_MB` | (opcional) espaço máximo antes de apagar PDFs antigos; padrão `850` |
 
 4. **Deploy**. Em cerca de 1 minuto a Vercel mostra a URL pública (`https://seu-projeto.vercel.app`), já com HTTPS.
 5. Em **Settings → Functions**, deixe a região das funções como **São Paulo (gru1)**, perto do Supabase.
@@ -252,7 +286,9 @@ app/
   api/laudos/zip                 lista os PDFs de um dia com links temporários
 components/FormularioEnvio.tsx   formulário (câmera, miniaturas, progresso, retomada)
 lib/layout.ts                    alocação procedural das fotos (função pura, testada)
+lib/reduzirFoto.ts               redução da foto no celular antes do envio
 lib/imagem.ts                    sharp: EXIF, redução, JPEG, SHA-256
+lib/manutencao.ts                limpeza automática do armazenamento
 lib/pdf/                         documento @react-pdf/renderer
 lib/marca.ts                     cores e símbolo Vanderhulst
 lib/acesso.ts                    senha de acesso (cookie)
@@ -270,9 +306,9 @@ scripts/gerar-exemplos.ts        PDFs de exemplo sem Supabase
   comercial. Para uso por uma empresa, verifique os termos atuais. O código não depende da Vercel: roda em
   qualquer hospedagem de Next.js com Node, como o plano gratuito da Netlify, que permite uso comercial (nesse
   caso confira o limite de tempo das funções, que é menor).
-- **Supabase Free**: 1 GB de Storage e 500 MB de banco. Um laudo com 15 fotos ocupa cerca de 6 MB (fotos
-  processadas + PDF), ou seja, algo como 150 laudos desse tamanho. Acompanhe em **Project Settings → Usage**;
-  quando chegar perto, apague laudos antigos (pasta do laudo no bucket + linha na tabela `laudo`) ou arquive os PDFs.
+- **Supabase Free**: 1 GB de Storage, ~5 GB/mês de tráfego de saída e 500 MB de banco — ver
+  [Capacidade](#capacidade-600-laudos-por-mês-no-plano-gratuito). Acompanhe em **Project Settings → Usage**.
+  Laudos com muitas fotos ocupam mais (15 fotos ≈ 3 MB de PDF); a limpeza automática se ajusta sozinha.
 - **Diagnóstico**: depois de entrar com a senha, abra `/api/diagnostico` para conferir variáveis, tabelas e bucket.
 - **Supabase Free pausa o projeto após 7 dias sem uso**. Basta reativar no painel (**Restore project**). Em uso
   diário isso não acontece.

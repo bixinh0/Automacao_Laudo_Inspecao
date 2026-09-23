@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
+  CODIGO_FORMULARIO,
   MAX_BYTES_ARQUIVO,
   MAX_FOLHAS_FORMULARIO,
   MAX_FOTOS_PECAS,
@@ -10,6 +11,7 @@ import {
   opValida,
   type TipoImagem,
 } from "@/lib/regras";
+import { reduzirFoto } from "@/lib/reduzirFoto";
 
 interface Anexo {
   id: string;
@@ -50,7 +52,7 @@ async function postJson<T>(url: string, corpo: unknown): Promise<T> {
 }
 
 /** Envia o arquivo direto ao Storage pela URL assinada, informando o progresso. */
-function enviarArquivo(url: string, arquivo: File, aoProgredir: (fracao: number) => void): Promise<void> {
+function enviarArquivo(url: string, arquivo: Blob, nome: string, aoProgredir: (fracao: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
@@ -61,11 +63,11 @@ function enviarArquivo(url: string, arquivo: File, aoProgredir: (fracao: number)
     xhr.onload = () =>
       xhr.status >= 200 && xhr.status < 300
         ? resolve()
-        : reject(new Error(`Falha ao enviar a foto "${arquivo.name}" (HTTP ${xhr.status}).`));
+        : reject(new Error(`Falha ao enviar a foto "${nome}" (HTTP ${xhr.status}).`));
     xhr.onerror = () => reject(new Error("A conexão caiu durante o envio. Toque em Tentar novamente para continuar de onde parou."));
     const corpo = new FormData();
     corpo.append("cacheControl", "3600");
-    corpo.append("", arquivo);
+    corpo.append("", arquivo, nome);
     xhr.send(corpo);
   });
 }
@@ -149,6 +151,8 @@ export default function FormularioEnvio() {
   const [mensagemErro, setMensagemErro] = useState("");
   const [aviso, setAviso] = useState("");
   const sessao = useRef<Sessao | null>(null);
+  // Fotos já reduzidas, por anexo: numa nova tentativa não precisa reduzir de novo.
+  const reduzidas = useRef(new Map<string, Blob>());
 
   // Libera a memória das miniaturas ao sair da tela.
   const anexosRef = useRef<Anexo[]>([]);
@@ -196,6 +200,7 @@ export default function FormularioEnvio() {
       setter((atuais) => {
         const alvo = atuais.find((a) => a.id === id);
         if (alvo) URL.revokeObjectURL(alvo.miniatura);
+        reduzidas.current.delete(id);
         return atuais.filter((a) => a.id !== id);
       });
       alterou();
@@ -220,11 +225,11 @@ export default function FormularioEnvio() {
       ...pecas.map((a, i) => ({ tipo: "PECA" as const, ordem: i + 1, anexo: a })),
     ];
     const chave = (i: { tipo: TipoImagem; ordem: number }) => `${i.tipo}-${i.ordem}`;
-    const totalBytes = itens.reduce((t, i) => t + i.anexo.arquivo.size, 0) || 1;
+    // Cada foto pesa igual na barra: 10% reduzir no celular, 90% enviar. O PDF fecha os últimos 10%.
     const avanco = new Map<string, number>();
     const atualizar = () => {
-      const enviado = itens.reduce((t, i) => t + i.anexo.arquivo.size * (avanco.get(chave(i)) ?? 0), 0);
-      setProgresso((enviado / totalBytes) * 0.9);
+      const soma = itens.reduce((t, i) => t + (avanco.get(chave(i)) ?? 0), 0);
+      setProgresso((soma / itens.length) * 0.9);
     };
 
     try {
@@ -246,19 +251,23 @@ export default function FormularioEnvio() {
       for (const k of s.concluidas) avanco.set(k, 1);
       atualizar();
 
-      const atualizarEtapa = () =>
-        setEtapa(`Enviando fotos: ${s.concluidas.size} de ${itens.length} prontas`);
+      const atualizarEtapa = () => setEtapa(`Enviando fotos: ${s.concluidas.size} de ${itens.length} prontas`);
       atualizarEtapa();
 
       await emParalelo(itens, ENVIOS_SIMULTANEOS, async (item) => {
         const k = chave(item);
         if (s.concluidas.has(k)) return;
-        await enviarArquivo(s.urls.get(k)!, item.anexo.arquivo, (f) => {
-          // 85% do peso da foto é o envio; o restante, o processamento no servidor.
-          avanco.set(k, f * 0.85);
+        let reduzida = reduzidas.current.get(item.anexo.id);
+        if (!reduzida) {
+          reduzida = await reduzirFoto(item.anexo.arquivo, item.tipo);
+          reduzidas.current.set(item.anexo.id, reduzida);
+        }
+        avanco.set(k, 0.1);
+        atualizar();
+        await enviarArquivo(s.urls.get(k)!, reduzida, item.anexo.arquivo.name, (f) => {
+          avanco.set(k, 0.1 + f * 0.9);
           atualizar();
         });
-        await postJson(`/api/laudos/${s.laudoId}/imagens`, { tipo: item.tipo, ordem: item.ordem });
         s.concluidas.add(k);
         avanco.set(k, 1);
         atualizar();
@@ -266,7 +275,7 @@ export default function FormularioEnvio() {
       });
 
       setFase("gerando");
-      setEtapa("Montando o PDF do laudo…");
+      setEtapa("Processando as fotos e montando o PDF…");
       await postJson(`/api/laudos/${s.laudoId}/pdf`, { formularios: formularios.length, pecas: pecas.length });
       setProgresso(1);
       router.push(`/laudos/${s.laudoId}`);
@@ -309,7 +318,7 @@ export default function FormularioEnvio() {
       </section>
 
       <BlocoFotos
-        titulo="Formulário FM PRO 001 01"
+        titulo={`Formulário ${CODIGO_FORMULARIO}`}
         instrucao="Fotografe o formulário preenchido. Se usou frente e verso, tire uma foto de cada lado."
         rotuloBotao="Fotografar formulário"
         anexos={formularios}

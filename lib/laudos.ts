@@ -17,6 +17,8 @@ export interface Laudo {
   onedriveEnviadoEm: string | null;
   onedriveUrl: string | null;
   onedriveErro: string | null;
+  /** Quando o PDF foi apagado pela limpeza automática para liberar espaço (migration 0003). */
+  pdfRemovidoEm: string | null;
 }
 
 export interface Imagem {
@@ -49,6 +51,7 @@ type LinhaLaudo = {
   onedrive_enviado_em?: string | null;
   onedrive_url?: string | null;
   onedrive_erro?: string | null;
+  pdf_removido_em?: string | null;
 };
 type LinhaImagem = {
   id: string;
@@ -71,6 +74,7 @@ function paraLaudo(l: LinhaLaudo): Laudo {
     onedriveEnviadoEm: l.onedrive_enviado_em ?? null,
     onedriveUrl: l.onedrive_url ?? null,
     onedriveErro: l.onedrive_erro ?? null,
+    pdfRemovidoEm: l.pdf_removido_em ?? null,
   };
 }
 
@@ -88,18 +92,10 @@ function paraImagem(l: LinhaImagem): Imagem {
 }
 
 // Organização no bucket:
-//   {laudoId}/brutos/{TIPO}-{ordem}          foto original, apagada após o processamento
-//   {laudoId}/imagens/formulario-01.jpg      foto processada
-//   {laudoId}/imagens/peca-001.jpg
-//   {laudoId}/laudo-OP-{numero}.pdf
+//   {laudoId}/brutos/{TIPO}-{ordem}          foto enviada pelo navegador, apagada ao gerar o PDF
+//   {laudoId}/laudo-OP-{numero}.pdf          o laudo, com as fotos embutidas
 function caminhoBruto(laudoId: string, tipo: TipoImagem, ordem: number) {
   return `${laudoId}/brutos/${tipo}-${ordem}`;
-}
-
-function caminhoProcessado(laudoId: string, tipo: TipoImagem, ordem: number) {
-  return tipo === "FORMULARIO"
-    ? `${laudoId}/imagens/formulario-${String(ordem).padStart(2, "0")}.jpg`
-    : `${laudoId}/imagens/peca-${String(ordem).padStart(3, "0")}.jpg`;
 }
 
 export function nomeArquivoPdf(numeroOP: string) {
@@ -150,7 +146,7 @@ export async function listarImagens(laudoId: string): Promise<Imagem[]> {
   return data.map(paraImagem);
 }
 
-/** URL para o navegador enviar a foto original direto ao Storage (sem passar pelo servidor). */
+/** URL para o navegador enviar a foto direto ao Storage (sem passar pelo servidor). */
 export async function criarUrlEnvio(laudoId: string, tipo: TipoImagem, ordem: number): Promise<string> {
   const { data, error } = await supabase()
     .storage.from(BUCKET)
@@ -159,79 +155,21 @@ export async function criarUrlEnvio(laudoId: string, tipo: TipoImagem, ordem: nu
   return data.signedUrl;
 }
 
-async function laudoEmAberto(laudoId: string): Promise<Laudo> {
-  const laudo = await buscarLaudo(laudoId);
-  if (!laudo) throw new ErroLaudo("Laudo não encontrado.", 404);
-  if (laudo.caminhoPdf) throw new ErroLaudo("Este laudo já foi emitido e não pode ser alterado.", 409);
-  return laudo;
+type Item = { tipo: TipoImagem; ordem: number };
+
+function descrever(item: Item) {
+  return item.tipo === "FORMULARIO" ? `folha ${item.ordem} do formulário` : `foto ${item.ordem} das peças`;
 }
 
-/**
- * Processa uma foto já enviada ao Storage: corrige rotação, reduz, comprime,
- * calcula o SHA-256, grava a versão final e registra os metadados no banco.
- * Idempotente: repetir a chamada depois de um sucesso devolve o registro existente.
- */
-export async function processarImagemEnviada(laudoId: string, tipo: TipoImagem, ordem: number): Promise<Imagem> {
-  await laudoEmAberto(laudoId);
-  const storage = supabase().storage.from(BUCKET);
-  const bruto = caminhoBruto(laudoId, tipo, ordem);
-
-  const { data: arquivo, error: erroDownload } = await storage.download(bruto);
-  if (erroDownload || !arquivo) {
-    const { data: existente } = await supabase()
-      .from("imagem")
-      .select()
-      .match({ laudo_id: laudoId, tipo, ordem })
-      .maybeSingle<LinhaImagem>();
-    if (existente) return paraImagem(existente);
-    throw new ErroLaudo("A foto não chegou ao servidor. Tente enviar novamente.", 400);
-  }
-
-  let processada;
-  try {
-    processada = await processarImagem(Buffer.from(await arquivo.arrayBuffer()), tipo);
-  } catch {
-    throw new ErroLaudo("Não foi possível ler uma das fotos. Envie em JPEG ou PNG.", 422);
-  }
-
-  const destino = caminhoProcessado(laudoId, tipo, ordem);
-  const { error: erroUpload } = await storage.upload(destino, processada.buffer, { contentType: "image/jpeg", upsert: true });
-  if (erroUpload) throw erroUpload;
-
-  const { data, error } = await supabase()
-    .from("imagem")
-    .upsert(
-      {
-        laudo_id: laudoId,
-        tipo,
-        caminho_arquivo: destino,
-        hash_sha256: processada.hashSha256,
-        largura: processada.largura,
-        altura: processada.altura,
-        ordem,
-      },
-      { onConflict: "laudo_id,tipo,ordem" },
-    )
-    .select()
-    .single<LinhaImagem>();
-  if (error) throw error;
-
-  await storage.remove([bruto]);
-  return paraImagem(data);
-}
-
-async function baixarEmParalelo(imagens: Imagem[], simultaneos = 6): Promise<ImagemPdf[]> {
-  const storage = supabase().storage.from(BUCKET);
-  const saida: ImagemPdf[] = new Array(imagens.length);
+/** Executa `tarefa` para cada item com no máximo `limite` ao mesmo tempo, mantendo a ordem do resultado. */
+async function emParalelo<T, R>(itens: T[], limite: number, tarefa: (item: T) => Promise<R>): Promise<R[]> {
+  const saida: R[] = new Array(itens.length);
   let proximo = 0;
   await Promise.all(
-    Array.from({ length: Math.min(simultaneos, imagens.length) }, async () => {
-      while (proximo < imagens.length) {
+    Array.from({ length: Math.min(limite, itens.length) }, async () => {
+      while (proximo < itens.length) {
         const i = proximo++;
-        const img = imagens[i];
-        const { data, error } = await storage.download(img.caminhoArquivo);
-        if (error || !data) throw error ?? new Error(`Falha ao baixar ${img.caminhoArquivo}`);
-        saida[i] = { id: img.id, dados: Buffer.from(await data.arrayBuffer()), largura: img.largura, altura: img.altura };
+        saida[i] = await tarefa(itens[i]);
       }
     }),
   );
@@ -239,37 +177,77 @@ async function baixarEmParalelo(imagens: Imagem[], simultaneos = 6): Promise<Ima
 }
 
 /**
- * Monta o PDF com as imagens já processadas e grava no Storage.
- * `esperado` protege contra gerar um laudo com fotos faltando.
+ * Monta o laudo: baixa as fotos que o navegador enviou, corrige rotação,
+ * reduz e comprime (sharp), calcula o SHA-256 de cada uma, gera o PDF e grava
+ * só o PDF no Storage. As fotos ficam embutidas nele; no banco ficam o hash e
+ * as dimensões de cada uma. Guardar as fotos à parte dobraria o espaço usado
+ * e não caberia no plano gratuito com ~600 laudos por mês.
+ *
+ * `esperado` (enviado pelo navegador) garante que nenhuma foto ficou para trás.
  */
 export async function emitirLaudo(laudoId: string, esperado: { formularios: number; pecas: number }): Promise<Laudo> {
   const existente = await buscarLaudo(laudoId);
   if (!existente) throw new ErroLaudo("Laudo não encontrado.", 404);
   if (existente.caminhoPdf) return existente;
-
-  const imagens = await listarImagens(laudoId);
-  const formularios = imagens.filter((i) => i.tipo === "FORMULARIO");
-  const pecas = imagens.filter((i) => i.tipo === "PECA");
-  if (formularios.length === 0 || pecas.length === 0) {
+  if (esperado.formularios < 1 || esperado.pecas < 1) {
     throw new ErroLaudo("O laudo precisa de ao menos uma foto do formulário e uma foto das peças.");
   }
-  if (formularios.length !== esperado.formularios || pecas.length !== esperado.pecas) {
-    throw new ErroLaudo("Nem todas as fotos foram processadas. Tente enviar novamente.", 409);
-  }
 
-  const [dadosFormularios, dadosPecas] = await Promise.all([baixarEmParalelo(formularios), baixarEmParalelo(pecas)]);
+  const itens: Item[] = [
+    ...Array.from({ length: esperado.formularios }, (_, i) => ({ tipo: "FORMULARIO" as const, ordem: i + 1 })),
+    ...Array.from({ length: esperado.pecas }, (_, i) => ({ tipo: "PECA" as const, ordem: i + 1 })),
+  ];
+  const storage = supabase().storage.from(BUCKET);
+
+  const brutos = await emParalelo(itens, 6, async (item) => {
+    const { data, error } = await storage.download(caminhoBruto(laudoId, item.tipo, item.ordem));
+    if (error || !data) throw new ErroLaudo(`A ${descrever(item)} não chegou ao servidor. Toque em Tentar novamente.`, 409);
+    return Buffer.from(await data.arrayBuffer());
+  });
+
+  // Duas por vez: o sharp já usa vários núcleos, e assim a memória fica sob controle.
+  const processadas = await emParalelo(itens, 2, async (item) => {
+    try {
+      return await processarImagem(brutos[itens.indexOf(item)], item.tipo);
+    } catch {
+      throw new ErroLaudo(`Não foi possível ler a ${descrever(item)}. Envie em JPEG ou PNG.`, 422);
+    }
+  });
+
+  const paraPdf = (tipo: TipoImagem): ImagemPdf[] =>
+    itens.flatMap((item, i) =>
+      item.tipo === tipo
+        ? [{ id: `${tipo}-${item.ordem}`, dados: processadas[i].buffer, largura: processadas[i].largura, altura: processadas[i].altura }]
+        : [],
+    );
   const pdf = await gerarPdfLaudo({
     numeroOP: existente.numeroOP,
     observacoes: existente.observacoes,
     emitidoEm: new Date(),
-    formularios: dadosFormularios,
-    pecas: dadosPecas,
+    formularios: paraPdf("FORMULARIO"),
+    pecas: paraPdf("PECA"),
   });
 
   const caminho = `${laudoId}/${nomeArquivoPdf(existente.numeroOP)}`;
-  const storage = supabase().storage.from(BUCKET);
   const { error: erroUpload } = await storage.upload(caminho, pdf, { contentType: "application/pdf", upsert: true });
   if (erroUpload) throw erroUpload;
+
+  // caminho_arquivo aponta para o PDF, onde a imagem está embutida.
+  const { error: erroImagens } = await supabase()
+    .from("imagem")
+    .upsert(
+      itens.map((item, i) => ({
+        laudo_id: laudoId,
+        tipo: item.tipo,
+        ordem: item.ordem,
+        caminho_arquivo: caminho,
+        hash_sha256: processadas[i].hashSha256,
+        largura: processadas[i].largura,
+        altura: processadas[i].altura,
+      })),
+      { onConflict: "laudo_id,tipo,ordem" },
+    );
+  if (erroImagens) throw erroImagens;
 
   const { data, error } = await supabase()
     .from("laudo")
@@ -278,6 +256,9 @@ export async function emitirLaudo(laudoId: string, esperado: { formularios: numb
     .select()
     .single<LinhaLaudo>();
   if (error) throw error;
+
+  const { error: erroLimpeza } = await storage.remove(itens.map((item) => caminhoBruto(laudoId, item.tipo, item.ordem)));
+  if (erroLimpeza) console.error(`Laudo ${laudoId}: fotos brutas não removidas (a limpeza automática tenta de novo):`, erroLimpeza);
   return paraLaudo(data);
 }
 
@@ -294,7 +275,7 @@ export async function listarLaudosDoDia(dia: string): Promise<Laudo[]> {
     .order("criado_em", { ascending: true })
     .returns<LinhaLaudo[]>();
   if (error) throw error;
-  return data.map(paraLaudo).filter((l) => diaLocal(new Date(l.criadoEm)) === dia);
+  return data.map(paraLaudo).filter((l) => !l.pdfRemovidoEm && diaLocal(new Date(l.criadoEm)) === dia);
 }
 
 /** Links temporários (10 min) para o navegador baixar vários PDFs e montar o ZIP. */
@@ -316,6 +297,9 @@ export const VALIDADE_DOWNLOAD_S = 24 * 60 * 60;
 /** Link temporário (24 h) para baixar o PDF do laudo. */
 export async function urlDownloadPdf(laudo: Laudo): Promise<string> {
   if (!laudo.caminhoPdf) throw new ErroLaudo("O PDF deste laudo ainda não foi gerado.", 404);
+  if (laudo.pdfRemovidoEm) {
+    throw new ErroLaudo("O PDF deste laudo foi removido para liberar espaço. A cópia está no drive (ZIP do dia).", 410);
+  }
   const { data, error } = await supabase()
     .storage.from(BUCKET)
     .createSignedUrl(laudo.caminhoPdf, VALIDADE_DOWNLOAD_S, { download: nomeArquivoPdf(laudo.numeroOP) });
@@ -329,7 +313,7 @@ export async function urlDownloadPdf(laudo: Laudo): Promise<string> {
  */
 export async function enviarLaudoAoOneDrive(laudoId: string): Promise<boolean> {
   const laudo = await buscarLaudo(laudoId);
-  if (!laudo?.caminhoPdf || laudo.onedriveEnviadoEm) return Boolean(laudo?.onedriveEnviadoEm);
+  if (!laudo?.caminhoPdf || laudo.pdfRemovidoEm || laudo.onedriveEnviadoEm) return Boolean(laudo?.onedriveEnviadoEm);
   try {
     const { data, error } = await supabase().storage.from(BUCKET).download(laudo.caminhoPdf);
     if (error || !data) throw error ?? new Error("PDF não encontrado no Storage.");

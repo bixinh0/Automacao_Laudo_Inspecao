@@ -1,21 +1,12 @@
 import { createHash } from "node:crypto";
 import sharp from "sharp";
-import type { TipoImagem } from "./regras";
-
-/**
- * O formulário leva resolução e qualidade maiores: é a única fonte dos dados
- * de inspeção e a escrita à mão precisa continuar legível.
- */
-export const PERFIS: Record<TipoImagem, { maiorLado: number; qualidade: number }> = {
-  FORMULARIO: { maiorLado: 2000, qualidade: 85 },
-  PECA: { maiorLado: 1600, qualidade: 80 },
-};
+import { PERFIS, type TipoImagem } from "./regras";
 
 export interface ImagemProcessada {
   buffer: Buffer;
   largura: number;
   altura: number;
-  /** SHA-256 (hex) do arquivo JPEG gravado no armazenamento. */
+  /** SHA-256 (hex) do JPEG final, exatamente como embutido no PDF. */
   hashSha256: string;
 }
 
