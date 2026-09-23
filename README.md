@@ -94,6 +94,57 @@ Cores e símbolo ficam em `lib/marca.ts` e são usados pelo site (`components/Lo
 PDF (`lib/pdf/LaudoPdf.tsx`). O símbolo (duas correias sobre três polias formando o "V") é desenhado em vetor, o
 que o mantém nítido em qualquer tamanho. O nome VANDERHULST é composto em fonte negrito com espaçamento.
 
+## Envio automático ao OneDrive / SharePoint (opcional)
+
+Cada laudo gerado é copiado para uma pasta do SharePoint, por exemplo
+`Qualidade - Documentos/Checklist Embarque Controlado/2026/Setembro/23-09/laudo-OP-63335.pdf`.
+As pastas de ano, mês (por extenso) e dia-mês são criadas quando faltam; se já existirem, são reaproveitadas
+(o SharePoint não diferencia maiúsculas). Um segundo laudo da mesma OP no mesmo dia recebe um número no nome, sem
+sobrescrever o primeiro.
+
+- O envio acontece **depois** da confirmação na tela, então não atrasa o operador.
+- Se falhar (rede, permissão), o laudo continua no sistema e aparece como *Envio ao OneDrive pendente* no
+  histórico; em **Histórico → OneDrive → Enviar pendentes agora** ele é reenviado. O mesmo botão envia os laudos
+  emitidos antes da conexão.
+- Sem as variáveis abaixo, o recurso fica desligado e nada muda.
+
+Usa a API oficial da Microsoft (Microsoft Graph) com autorização da própria Microsoft: uma pessoa com acesso à
+pasta clica em **Conectar OneDrive** e entra com a conta Microsoft 365. **A senha não passa pelo sistema**; ele
+guarda só uma autorização (cifrada no banco), que pode ser revogada a qualquer momento. Os arquivos aparecem no
+SharePoint como criados por essa pessoa. A autorização se renova com o uso; se o sistema ficar ~90 dias parado,
+é preciso conectar de novo.
+
+### Configuração (uma vez)
+
+1. **Banco**: no SQL Editor do Supabase, rode
+   [`supabase/migrations/0002_envio_onedrive.sql`](supabase/migrations/0002_envio_onedrive.sql).
+2. **Registrar o app na Microsoft** — em <https://entra.microsoft.com> (ou portal.azure.com → Microsoft Entra ID):
+   1. **Registros de aplicativo → Novo registro**. Nome: `Laudos de Inspeção`. Tipos de conta: *Somente contas
+      deste diretório organizacional*. URI de redirecionamento: plataforma **Web**,
+      `https://SEU-SITE.vercel.app/api/onedrive/retorno` (o endereço exato do site).
+   2. Na página do app, copie **ID do aplicativo (cliente)** e **ID do diretório (locatário)**.
+   3. **Certificados e segredos → Novo segredo do cliente** (validade de até 24 meses). Copie o **Valor** na hora
+      (ele só aparece uma vez). Anote a data de vencimento: antes dela, crie outro segredo, troque na Vercel e
+      clique em Conectar de novo.
+   4. **Permissões de API → Adicionar → Microsoft Graph → Permissões delegadas**: `Files.ReadWrite.All`,
+      `offline_access` e `User.Read`. Se a empresa exigir, um administrador clica em
+      **Conceder consentimento do administrador**.
+   Se o seu usuário não puder registrar aplicativos, peça à TI para fazer os passos 2.1 a 2.4 (leva ~5 minutos).
+3. **Link da pasta**: no SharePoint (navegador), abra *Qualidade → Documentos*, clique nos três pontos da pasta
+   **Checklist Embarque Controlado → Copiar link**.
+4. **Vercel → Settings → Environment Variables**:
+
+   | Nome | Valor |
+   |---|---|
+   | `MS_TENANT_ID` | ID do diretório (locatário) |
+   | `MS_CLIENT_ID` | ID do aplicativo (cliente) |
+   | `MS_CLIENT_SECRET` | valor do segredo do cliente |
+   | `ONEDRIVE_PASTA_LINK` | link copiado no passo 3 |
+
+   Depois, **Redeploy**.
+5. No site: **Histórico → OneDrive → Conectar OneDrive**, entre com a conta que tem acesso à pasta e aceite.
+   Em seguida, **Enviar pendentes agora** manda os laudos já emitidos.
+
 ## Modelo de dados (`supabase/migrations/0001_estrutura_inicial.sql`)
 
 ```
@@ -186,12 +237,16 @@ app/
   (app)/historico/page.tsx       histórico com busca
   api/laudos/…                   criar laudo, processar foto, gerar e baixar PDF
   api/entrar, api/sair           login e logout
+  (app)/onedrive/page.tsx        conectar OneDrive e reenviar pendentes
+  api/onedrive/…                 conectar, retorno da Microsoft, pendentes, desconectar
 components/FormularioEnvio.tsx   formulário (câmera, miniaturas, progresso, retomada)
 lib/layout.ts                    alocação procedural das fotos (função pura, testada)
 lib/imagem.ts                    sharp: EXIF, redução, JPEG, SHA-256
 lib/pdf/                         documento @react-pdf/renderer
 lib/marca.ts                     cores e símbolo Vanderhulst
 lib/acesso.ts                    senha de acesso (cookie)
+lib/onedrive.ts                  Microsoft Graph: autorização, pastas e envio
+lib/integracao.ts                autorização do OneDrive guardada (cifrada) no banco
 lib/laudos.ts                    acesso ao banco e ao Storage
 supabase/migrations/             SQL do banco e do bucket
 scripts/gerar-exemplos.ts        PDFs de exemplo sem Supabase

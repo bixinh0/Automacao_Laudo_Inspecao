@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { listarLaudos } from "@/lib/laudos";
+import { configOneDrive } from "@/lib/onedrive";
 import { formatarDataHora } from "@/lib/pdf/formato";
 
 export const dynamic = "force-dynamic";
@@ -7,10 +9,14 @@ export default async function PaginaHistorico({ searchParams }: { searchParams: 
   const { op = "" } = await searchParams;
   const busca = op.replace(/\D/g, "").slice(0, 8);
   const laudos = await listarLaudos(busca);
+  const comOneDrive = Boolean(configOneDrive());
 
   return (
     <div className="historico">
-      <h1>Histórico de laudos</h1>
+      <div className="titulo-linha">
+        <h1>Histórico de laudos</h1>
+        <Link href="/onedrive">OneDrive</Link>
+      </div>
       <form className="busca" role="search">
         <input
           type="search"
@@ -36,6 +42,16 @@ export default async function PaginaHistorico({ searchParams }: { searchParams: 
                 <div>
                   <strong>OP {l.numeroOP}</strong>
                   <span>{formatarDataHora(new Date(l.criadoEm))}</span>
+                  {comOneDrive &&
+                    (l.onedriveUrl ? (
+                      <a className="selo-onedrive ok" href={l.onedriveUrl} target="_blank" rel="noreferrer">
+                        ✓ No OneDrive
+                      </a>
+                    ) : (
+                      <span className="selo-onedrive" title={l.onedriveErro ?? undefined}>
+                        Envio ao OneDrive pendente
+                      </span>
+                    ))}
                 </div>
                 <a href={`/api/laudos/${l.id}/pdf`}>Baixar PDF</a>
               </li>

@@ -1,5 +1,7 @@
 import "server-only";
 import { processarImagem } from "./imagem";
+import { acessoOneDrive } from "./integracao";
+import { enviarArquivo, subpastasDoDia } from "./onedrive";
 import { gerarPdfLaudo, type ImagemPdf } from "./pdf/gerar";
 import type { TipoImagem } from "./regras";
 import { BUCKET, supabase } from "./supabase";
@@ -10,6 +12,10 @@ export interface Laudo {
   observacoes: string | null;
   criadoEm: string;
   caminhoPdf: string | null;
+  /** Envio ao OneDrive (colunas da migration 0002; ausentes antes dela). */
+  onedriveEnviadoEm: string | null;
+  onedriveUrl: string | null;
+  onedriveErro: string | null;
 }
 
 export interface Imagem {
@@ -33,7 +39,16 @@ export class ErroLaudo extends Error {
   }
 }
 
-type LinhaLaudo = { id: string; numero_op: string; observacoes: string | null; criado_em: string; caminho_pdf: string | null };
+type LinhaLaudo = {
+  id: string;
+  numero_op: string;
+  observacoes: string | null;
+  criado_em: string;
+  caminho_pdf: string | null;
+  onedrive_enviado_em?: string | null;
+  onedrive_url?: string | null;
+  onedrive_erro?: string | null;
+};
 type LinhaImagem = {
   id: string;
   laudo_id: string;
@@ -46,7 +61,16 @@ type LinhaImagem = {
 };
 
 function paraLaudo(l: LinhaLaudo): Laudo {
-  return { id: l.id, numeroOP: l.numero_op, observacoes: l.observacoes, criadoEm: l.criado_em, caminhoPdf: l.caminho_pdf };
+  return {
+    id: l.id,
+    numeroOP: l.numero_op,
+    observacoes: l.observacoes,
+    criadoEm: l.criado_em,
+    caminhoPdf: l.caminho_pdf,
+    onedriveEnviadoEm: l.onedrive_enviado_em ?? null,
+    onedriveUrl: l.onedrive_url ?? null,
+    onedriveErro: l.onedrive_erro ?? null,
+  };
 }
 
 function paraImagem(l: LinhaImagem): Imagem {
@@ -267,4 +291,49 @@ export async function urlDownloadPdf(laudo: Laudo): Promise<string> {
     .createSignedUrl(laudo.caminhoPdf, VALIDADE_DOWNLOAD_S, { download: nomeArquivoPdf(laudo.numeroOP) });
   if (error) throw error;
   return data.signedUrl;
+}
+
+/**
+ * Copia o PDF do laudo para o OneDrive/SharePoint, em {ano}/{mês}/{dd-mm}.
+ * Registra o resultado no laudo; nunca lança erro (a falha fica em onedrive_erro).
+ */
+export async function enviarLaudoAoOneDrive(laudoId: string): Promise<boolean> {
+  const laudo = await buscarLaudo(laudoId);
+  if (!laudo?.caminhoPdf || laudo.onedriveEnviadoEm) return Boolean(laudo?.onedriveEnviadoEm);
+  try {
+    const { data, error } = await supabase().storage.from(BUCKET).download(laudo.caminhoPdf);
+    if (error || !data) throw error ?? new Error("PDF não encontrado no Storage.");
+    const { token, raiz } = await acessoOneDrive();
+    const url = await enviarArquivo(
+      token,
+      raiz,
+      subpastasDoDia(new Date(laudo.criadoEm)),
+      nomeArquivoPdf(laudo.numeroOP),
+      Buffer.from(await data.arrayBuffer()),
+    );
+    await supabase()
+      .from("laudo")
+      .update({ onedrive_enviado_em: new Date().toISOString(), onedrive_url: url, onedrive_erro: null })
+      .eq("id", laudoId);
+    return true;
+  } catch (e) {
+    const motivo = (e as { message?: string })?.message ?? String(e);
+    console.error(`OneDrive: falha ao enviar o laudo ${laudoId}:`, e);
+    await supabase().from("laudo").update({ onedrive_erro: motivo.slice(0, 500) }).eq("id", laudoId);
+    return false;
+  }
+}
+
+/** Laudos emitidos ainda não copiados para o OneDrive, do mais antigo ao mais novo. */
+export async function listarPendentesOneDrive(limite = 200): Promise<Laudo[]> {
+  const { data, error } = await supabase()
+    .from("laudo")
+    .select()
+    .not("caminho_pdf", "is", null)
+    .is("onedrive_enviado_em", null)
+    .order("criado_em", { ascending: true })
+    .limit(limite)
+    .returns<LinhaLaudo[]>();
+  if (error) throw error;
+  return data.map(paraLaudo);
 }

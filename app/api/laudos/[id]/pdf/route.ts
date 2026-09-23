@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { erro, lerJson, tratarErro } from "@/lib/api";
-import { buscarLaudo, emitirLaudo, urlDownloadPdf } from "@/lib/laudos";
+import { buscarLaudo, emitirLaudo, enviarLaudoAoOneDrive, urlDownloadPdf } from "@/lib/laudos";
+import { configOneDrive } from "@/lib/onedrive";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,6 +16,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   try {
     const laudo = await emitirLaudo(id, { formularios, pecas });
+    // Cópia para o OneDrive depois da resposta: não atrasa a confirmação na tela.
+    if (configOneDrive() && !laudo.onedriveEnviadoEm) after(() => enviarLaudoAoOneDrive(laudo.id));
     return NextResponse.json({ id: laudo.id, numeroOP: laudo.numeroOP });
   } catch (e) {
     return tratarErro(e);

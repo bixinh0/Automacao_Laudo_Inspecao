@@ -486,3 +486,46 @@ textarea {
   text-decoration: none;
   white-space: nowrap;
 }
+
+/* OneDrive */
+.titulo-linha {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.titulo-linha a {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+.aviso-ok {
+  background: var(--azul-claro);
+  border: 1px solid #9fd0ee;
+  border-radius: var(--raio);
+  padding: 10px 12px;
+  margin: 0 0 12px;
+}
+.historico .aviso {
+  margin-bottom: 12px;
+}
+.cartao form {
+  margin: 0;
+}
+.cartao .botao-secundario {
+  margin-top: 10px;
+}
+.lista-laudos .selo-onedrive {
+  font-size: 0.8rem;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  font-weight: 600;
+  color: var(--cinza);
+}
+.lista-laudos a.selo-onedrive.ok {
+  color: var(--azul);
+  text-decoration: none;
+}
+.cartao > p:first-child {
+  margin-top: 0;
+}
