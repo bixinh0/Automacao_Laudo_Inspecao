@@ -1,0 +1,406 @@
+/* Pensado para celular, uso com uma mão no chão de fábrica: alvos grandes,
+   alto contraste, ação principal fixa no rodapé ao alcance do polegar. */
+
+:root {
+  --azul: #12355b;
+  --azul-claro: #e8eef6;
+  --verde: #1f7a3a;
+  --vermelho: #b3261e;
+  --texto: #1a1a1a;
+  --cinza: #5c6570;
+  --borda: #cfd6de;
+  --fundo: #f3f5f8;
+  --branco: #ffffff;
+  --raio: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 17px;
+  line-height: 1.4;
+  color: var(--texto);
+  background: var(--fundo);
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 12px 16px 24px;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 8px 0 12px;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin: 0 0 4px;
+}
+
+a {
+  color: var(--azul);
+}
+
+/* Topo */
+.topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  height: 52px;
+  background: var(--azul);
+  color: var(--branco);
+}
+.topo a {
+  color: var(--branco);
+  text-decoration: none;
+}
+.marca {
+  font-weight: 700;
+}
+.topo nav {
+  display: flex;
+  gap: 4px;
+}
+.topo nav a {
+  padding: 12px 10px;
+  font-size: 0.95rem;
+}
+
+/* Formulário de envio */
+.formulario {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 150px; /* espaço para a barra fixa */
+}
+
+.bloco {
+  background: var(--branco);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  padding: 14px;
+}
+
+.ajuda {
+  color: var(--cinza);
+  font-size: 0.92rem;
+  margin: 0 0 10px;
+}
+
+.alerta {
+  color: var(--vermelho);
+}
+
+.opcional {
+  color: var(--cinza);
+  font-weight: 400;
+  font-size: 0.9rem;
+}
+
+.campo-op {
+  width: 100%;
+  font-size: 1.9rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 10px 12px;
+  border: 2px solid var(--borda);
+  border-radius: 10px;
+  margin-top: 6px;
+}
+.campo-op:focus,
+textarea:focus,
+.busca input:focus {
+  outline: 3px solid #7aa7d9;
+  border-color: var(--azul);
+}
+
+textarea {
+  width: 100%;
+  font: inherit;
+  padding: 10px;
+  border: 2px solid var(--borda);
+  border-radius: 10px;
+  margin-top: 6px;
+  resize: vertical;
+}
+
+.oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.botao-foto {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 60px;
+  border-radius: 10px;
+  background: var(--azul-claro);
+  color: var(--azul);
+  border: 2px dashed var(--azul);
+  font-weight: 700;
+  font-size: 1.05rem;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+.botao-foto:active {
+  background: #d3deec;
+}
+.botao-foto:focus-within {
+  outline: 3px solid #7aa7d9;
+}
+.botao-foto.desabilitado {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.contador {
+  margin: 10px 0 0;
+  font-weight: 600;
+  color: var(--cinza);
+}
+.contador.ok {
+  color: var(--verde);
+}
+
+.miniaturas {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+.miniaturas li {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #dde3ea;
+}
+.miniaturas img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.miniaturas .numero {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 0.75rem;
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+.miniaturas .remover {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: rgba(179, 38, 30, 0.92);
+  color: #fff;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.aviso {
+  background: #fff4e5;
+  border: 1px solid #f0c27b;
+  border-radius: var(--raio);
+  padding: 10px 12px;
+  margin: 0;
+}
+
+/* Barra fixa com o botão principal */
+.barra-envio {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--branco);
+  border-top: 1px solid var(--borda);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.06);
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+}
+.barra-envio > * {
+  max-width: 608px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.faltando {
+  margin: 0 auto 8px;
+  font-size: 0.9rem;
+  color: var(--cinza);
+}
+
+.botao-enviar,
+.botao-secundario {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 58px;
+  border-radius: 12px;
+  border: none;
+  font: inherit;
+  font-size: 1.15rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+.botao-enviar {
+  background: var(--verde);
+  color: var(--branco);
+}
+.botao-enviar:disabled {
+  background: #aab4bf;
+  cursor: not-allowed;
+}
+.botao-secundario {
+  background: var(--branco);
+  color: var(--azul);
+  border: 2px solid var(--azul);
+  margin-top: 10px;
+}
+
+.progresso {
+  margin-bottom: 8px;
+}
+.progresso p {
+  margin: 6px 0 0;
+  font-size: 0.92rem;
+}
+.trilho {
+  height: 14px;
+  border-radius: 7px;
+  background: #e1e6ec;
+  overflow: hidden;
+}
+.preenchimento {
+  height: 100%;
+  background: var(--azul);
+  transition: width 0.25s ease;
+}
+.trilho.animado .preenchimento {
+  background: repeating-linear-gradient(45deg, var(--azul) 0 12px, #2b5d93 12px 24px);
+  background-size: 34px 34px;
+  animation: listras 0.8s linear infinite;
+}
+@keyframes listras {
+  to {
+    background-position: 34px 0;
+  }
+}
+
+/* Confirmação */
+.cartao {
+  background: var(--branco);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  padding: 20px 16px;
+  margin-top: 8px;
+}
+.cartao .botao-enviar {
+  margin-top: 16px;
+}
+.confirmacao {
+  text-align: center;
+}
+.selo {
+  width: 64px;
+  height: 64px;
+  margin: 4px auto 0;
+  border-radius: 50%;
+  background: var(--verde);
+  color: #fff;
+  font-size: 2.2rem;
+  line-height: 64px;
+}
+.op-destaque {
+  font-size: 2.2rem;
+  font-weight: 800;
+  margin: 4px 0;
+  letter-spacing: 0.03em;
+}
+
+/* Histórico */
+.busca {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.busca input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 12px;
+  border: 2px solid var(--borda);
+  border-radius: 10px;
+}
+.busca button {
+  font: inherit;
+  font-weight: 700;
+  padding: 0 18px;
+  border: none;
+  border-radius: 10px;
+  background: var(--azul);
+  color: #fff;
+  cursor: pointer;
+}
+.lista-laudos {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  background: var(--branco);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+}
+.lista-laudos li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--borda);
+}
+.lista-laudos li:last-child {
+  border-bottom: none;
+}
+.lista-laudos div {
+  display: flex;
+  flex-direction: column;
+}
+.lista-laudos span {
+  color: var(--cinza);
+  font-size: 0.9rem;
+}
+.lista-laudos a {
+  font-weight: 700;
+  padding: 10px 12px;
+  border: 2px solid var(--azul);
+  border-radius: 10px;
+  text-decoration: none;
+  white-space: nowrap;
+}

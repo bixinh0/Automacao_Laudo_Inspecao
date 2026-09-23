@@ -1,0 +1,6 @@
+{
+  "name": "Laudo de Inspeção",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "postCreateCommand": "npm install",
+  "forwardPorts": [3000]
+}
