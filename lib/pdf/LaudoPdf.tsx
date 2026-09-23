@@ -3,11 +3,12 @@ import { alocarFotos, contain } from "../layout";
 import { MARCA, SIMBOLO } from "../marca";
 import { formatarDataHora } from "./formato";
 import {
-  A4,
   ALTURA_CABECALHO,
   ALTURA_RODAPE,
   ALTURA_TITULO_FORMULARIO,
   AREA_FOTOS,
+  caixaFormulario,
+  DISTANCIA_RODAPE,
   ESPACO_APOS_CABECALHO,
   MARGEM,
   MARGEM_FORMULARIO,
@@ -39,7 +40,7 @@ const s = StyleSheet.create({
     position: "absolute",
     left: MARGEM,
     right: MARGEM,
-    bottom: MARGEM - 14,
+    bottom: DISTANCIA_RODAPE,
     height: ALTURA_RODAPE,
     paddingTop: 5,
     borderTop: `0.75 solid ${C.cinzaClaro}`,
@@ -205,10 +206,7 @@ function PaginaIdentificacao({ dados }: { dados: DadosLaudoPdf }) {
 function PaginaFormulario({ imagem, folha, numeroOP }: { imagem: ImagemPdf; folha: number; numeroOP: string }) {
   // A orientação da página acompanha a da foto, para o formulário sair o maior possível.
   const paisagem = imagem.largura > imagem.altura;
-  const larguraPagina = paisagem ? A4.altura : A4.largura;
-  const alturaPagina = paisagem ? A4.largura : A4.altura;
-  const caixaLargura = larguraPagina - 2 * MARGEM_FORMULARIO;
-  const caixaAltura = alturaPagina - 2 * MARGEM_FORMULARIO - ALTURA_TITULO_FORMULARIO - ALTURA_RODAPE;
+  const { largura: caixaLargura, altura: caixaAltura } = caixaFormulario(paisagem);
   const r = contain(imagem.largura / imagem.altura, caixaLargura, caixaAltura);
 
   return (
