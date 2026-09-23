@@ -256,12 +256,15 @@ export async function emitirLaudo(laudoId: string, esperado: { formularios: numb
   return paraLaudo(data);
 }
 
-/** Link temporário (5 min) para baixar o PDF do laudo. */
+/** Validade do link de download do PDF gerado a cada clique em "Baixar PDF". */
+export const VALIDADE_DOWNLOAD_S = 24 * 60 * 60;
+
+/** Link temporário (24 h) para baixar o PDF do laudo. */
 export async function urlDownloadPdf(laudo: Laudo): Promise<string> {
   if (!laudo.caminhoPdf) throw new ErroLaudo("O PDF deste laudo ainda não foi gerado.", 404);
   const { data, error } = await supabase()
     .storage.from(BUCKET)
-    .createSignedUrl(laudo.caminhoPdf, 300, { download: nomeArquivoPdf(laudo.numeroOP) });
+    .createSignedUrl(laudo.caminhoPdf, VALIDADE_DOWNLOAD_S, { download: nomeArquivoPdf(laudo.numeroOP) });
   if (error) throw error;
   return data.signedUrl;
 }

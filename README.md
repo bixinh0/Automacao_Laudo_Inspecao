@@ -1,4 +1,4 @@
-# Automação do Laudo de Inspeção
+# Automação do Laudo de Inspeção — Vanderhulst
 
 Aplicação web que monta automaticamente o **Laudo de Inspeção de Produção** (formulário
 FM PRO 001 01) em PDF. O operador abre o site no celular, digita o número da OP, fotografa o
@@ -7,12 +7,15 @@ formulário preenchido e as peças acabadas, e recebe o PDF pronto.
 - Nada para instalar: roda no navegador do celular ou do computador.
 - A câmera abre direto pelo navegador (`<input type="file" accept="image/*" capture="environment">`).
 - O formulário entra no laudo **como imagem**, exatamente como foi fotografado. Nenhum dado é lido ou transcrito.
+- Acesso restrito por senha única da fábrica; o celular lembra a senha por 180 dias.
+- Identidade visual Vanderhulst no site e no PDF (`lib/marca.ts`).
 - Custo de infraestrutura zero (planos gratuitos da Vercel e do Supabase — leia os [limites](#limites-dos-planos-gratuitos)).
 
 ## Telas
 
 | Tela | Endereço | Uso |
 |---|---|---|
+| Entrada | `/entrar` | Senha de acesso. Todas as outras telas e APIs exigem a senha. |
 | Envio | `/` | Número da OP, fotos do formulário, fotos das peças, observações. Única tela usada no chão de fábrica. |
 | Confirmação | `/laudos/{id}` | Mensagem de sucesso, número da OP e botão **Baixar PDF**. |
 | Histórico | `/historico` | Laudos emitidos, com busca por número da OP. |
@@ -73,7 +76,23 @@ Navegador                       Servidor (Vercel)                  Supabase
 ```
 
 Se a conexão cair no meio, **Tentar novamente** continua de onde parou (as fotos já processadas não são reenviadas).
-O navegador nunca recebe chave do Supabase.
+O navegador nunca recebe chave do Supabase. O link de download do PDF é gerado a cada clique em
+**Baixar PDF** e vale 24 horas (`VALIDADE_DOWNLOAD_S` em `lib/laudos.ts`).
+
+## Acesso por senha
+
+- A senha fica na variável `SENHA_ACESSO` da Vercel. Sem ela, ninguém entra (a tela de entrada avisa que falta configurar).
+- Depois de digitar a senha, o navegador guarda um cookie por 180 dias; o botão **Sair** apaga.
+- Para trocar a senha (por exemplo, quando alguém sai da empresa): altere `SENHA_ACESSO` na Vercel e faça
+  **Redeploy**. Todos os aparelhos terão de digitar a nova senha.
+- Senha errada tem espera de 1 segundo por tentativa, o que dificulta tentativas em série.
+- O site pede aos buscadores para não ser indexado.
+
+## Identidade visual
+
+Cores e símbolo ficam em `lib/marca.ts` e são usados pelo site (`components/Logo.tsx`, `app/globals.css`) e pelo
+PDF (`lib/pdf/LaudoPdf.tsx`). O símbolo (duas correias sobre três polias formando o "V") é desenhado em vetor, o
+que o mantém nítido em qualquer tamanho. O nome VANDERHULST é composto em fonte negrito com espaçamento.
 
 ## Modelo de dados (`supabase/migrations/0001_estrutura_inicial.sql`)
 
@@ -119,6 +138,7 @@ Tenha este código num repositório seu no GitHub (pode ser privado).
    |---|---|
    | `SUPABASE_URL` | Project URL do passo 2.4 |
    | `SUPABASE_SECRET_KEY` | chave secreta do passo 2.4 |
+   | `SENHA_ACESSO` | senha que os operadores vão digitar para entrar no site |
    | `FUSO_HORARIO` | (opcional) padrão `America/Sao_Paulo` |
 
 4. **Deploy**. Em cerca de 1 minuto a Vercel mostra a URL pública (`https://seu-projeto.vercel.app`), já com HTTPS.
@@ -128,7 +148,7 @@ A cada `git push` na branch principal a Vercel publica a nova versão sozinha.
 
 ### 4. Teste de aceite
 
-1. Abra a URL no celular. Digite uma OP, fotografe o formulário e algumas peças (inclua fotos com o celular em pé).
+1. Abra a URL no celular e digite a senha de acesso. Digite uma OP, fotografe o formulário e algumas peças (inclua fotos com o celular em pé).
 2. Toque em **Gerar laudo**, espere a confirmação e baixe o PDF.
 3. Abra **Histórico** e busque pela OP.
 
@@ -158,15 +178,20 @@ a tag EXIF de rotação), e mostram o tempo gasto. Referência medida num contê
 ### Organização
 
 ```
+proxy.ts                         exige a senha em todas as rotas (exceto /entrar)
 app/
-  page.tsx                       tela de envio
-  laudos/[id]/page.tsx           confirmação
-  historico/page.tsx             histórico com busca
+  entrar/page.tsx                tela de senha
+  (app)/page.tsx                 tela de envio
+  (app)/laudos/[id]/page.tsx     confirmação
+  (app)/historico/page.tsx       histórico com busca
   api/laudos/…                   criar laudo, processar foto, gerar e baixar PDF
+  api/entrar, api/sair           login e logout
 components/FormularioEnvio.tsx   formulário (câmera, miniaturas, progresso, retomada)
 lib/layout.ts                    alocação procedural das fotos (função pura, testada)
 lib/imagem.ts                    sharp: EXIF, redução, JPEG, SHA-256
 lib/pdf/                         documento @react-pdf/renderer
+lib/marca.ts                     cores e símbolo Vanderhulst
+lib/acesso.ts                    senha de acesso (cookie)
 lib/laudos.ts                    acesso ao banco e ao Storage
 supabase/migrations/             SQL do banco e do bucket
 scripts/gerar-exemplos.ts        PDFs de exemplo sem Supabase
@@ -181,6 +206,7 @@ scripts/gerar-exemplos.ts        PDFs de exemplo sem Supabase
 - **Supabase Free**: 1 GB de Storage e 500 MB de banco. Um laudo com 15 fotos ocupa cerca de 6 MB (fotos
   processadas + PDF), ou seja, algo como 150 laudos desse tamanho. Acompanhe em **Project Settings → Usage**;
   quando chegar perto, apague laudos antigos (pasta do laudo no bucket + linha na tabela `laudo`) ou arquive os PDFs.
+- **Diagnóstico**: depois de entrar com a senha, abra `/api/diagnostico` para conferir variáveis, tabelas e bucket.
 - **Supabase Free pausa o projeto após 7 dias sem uso**. Basta reativar no painel (**Restore project**). Em uso
   diário isso não acontece.
 - Fotos em **HEIC**: o iPhone converte para JPEG ao enviar pelo navegador. Se chegar um HEIC mesmo assim, o
@@ -188,6 +214,6 @@ scripts/gerar-exemplos.ts        PDFs de exemplo sem Supabase
 
 ## Fora do escopo desta versão
 
-Autenticação, permissões, painéis, transcrição do formulário e validação de medidas. Ver a seção de evolução
+Login individual por usuário, permissões, painéis, transcrição do formulário e validação de medidas. Ver a seção de evolução
 prevista na especificação: fase 2 (digitação dos dados), fase 3 (transcrição por IA com revisão humana) e
 fase 4 (validação contra a tabela de tolerâncias).

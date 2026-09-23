@@ -1,5 +1,6 @@
-import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { Circle, Document, Image, Line, Page, StyleSheet, Svg, Text, View } from "@react-pdf/renderer";
 import { alocarFotos, contain } from "../layout";
+import { MARCA, SIMBOLO } from "../marca";
 import { formatarDataHora } from "./formato";
 import {
   A4,
@@ -7,6 +8,7 @@ import {
   ALTURA_RODAPE,
   ALTURA_TITULO_FORMULARIO,
   AREA_FOTOS,
+  ESPACO_APOS_CABECALHO,
   MARGEM,
   MARGEM_FORMULARIO,
 } from "./medidas";
@@ -28,51 +30,112 @@ export interface DadosLaudoPdf {
   pecas: ImagemPdf[];
 }
 
-const COR_TEXTO = "#1a1a1a";
-const COR_SECUNDARIA = "#555555";
-const COR_LINHA = "#c8c8c8";
+const C = MARCA.cores;
+const ALTURA_FAIXA_CAPA = 96;
 
 const s = StyleSheet.create({
-  pagina: { fontFamily: "Helvetica", fontSize: 10, color: COR_TEXTO },
+  pagina: { fontFamily: "Helvetica", fontSize: 10, color: C.cinzaEscuro },
   rodape: {
     position: "absolute",
     left: MARGEM,
     right: MARGEM,
-    bottom: MARGEM - 12,
+    bottom: MARGEM - 14,
     height: ALTURA_RODAPE,
+    paddingTop: 5,
+    borderTop: `0.75 solid ${C.cinzaClaro}`,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-end",
-    fontSize: 8,
-    color: COR_SECUNDARIA,
+    fontSize: 7.5,
+    color: C.cinza,
   },
+  rodapeMarca: { fontFamily: "Helvetica-Bold", color: C.azulEscuro, letterSpacing: 0.8 },
+  nomeMarca: { fontFamily: "Helvetica-Bold", letterSpacing: 1.6 },
   // Página 1
-  capa: { padding: MARGEM, paddingBottom: MARGEM + ALTURA_RODAPE },
-  rotulo: { fontSize: 9, letterSpacing: 1.5, color: COR_SECUNDARIA, fontFamily: "Helvetica-Bold" },
-  tituloCapa: { fontSize: 20, fontFamily: "Helvetica-Bold", marginTop: 4 },
-  referencia: { fontSize: 9, color: COR_SECUNDARIA, marginTop: 2 },
-  caixaOP: { marginTop: 28, paddingVertical: 18, borderTop: `2 solid ${COR_TEXTO}`, borderBottom: `2 solid ${COR_TEXTO}` },
-  numeroOP: { fontSize: 44, fontFamily: "Helvetica-Bold", marginTop: 4 },
-  emissao: { fontSize: 11, marginTop: 8 },
+  faixa: {
+    height: ALTURA_FAIXA_CAPA,
+    backgroundColor: C.azul,
+    paddingHorizontal: MARGEM,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  faixaTitulo: { color: "#ffffff", fontSize: 9, letterSpacing: 1.4, textAlign: "right", fontFamily: "Helvetica-Bold" },
+  faixaSub: { color: "#dcefff", fontSize: 8, textAlign: "right", marginTop: 3 },
+  faixaFina: { height: 5, backgroundColor: C.marinho },
+  corpoCapa: { paddingHorizontal: MARGEM, paddingTop: 30 },
+  rotulo: { fontSize: 8, letterSpacing: 1.5, color: C.cinza, fontFamily: "Helvetica-Bold" },
+  caixaOP: {
+    flexDirection: "row",
+    backgroundColor: "#EEF4F9",
+    borderLeft: `5 solid ${C.azul}`,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+  },
+  numeroOP: { fontSize: 40, fontFamily: "Helvetica-Bold", color: C.marinho, marginTop: 6 },
+  emissaoValor: { fontSize: 11, color: C.marinho, marginTop: 4, textAlign: "right" },
   secao: { marginTop: 26 },
-  tituloSecao: { fontSize: 12, fontFamily: "Helvetica-Bold", marginBottom: 8, paddingBottom: 4, borderBottom: `1 solid ${COR_LINHA}` },
-  itemResumo: { fontSize: 11, marginBottom: 4 },
-  observacoes: { fontSize: 11, lineHeight: 1.45 },
+  tituloSecao: {
+    fontSize: 10,
+    fontFamily: "Helvetica-Bold",
+    color: C.azulEscuro,
+    letterSpacing: 1.2,
+    paddingBottom: 5,
+    marginBottom: 10,
+    borderBottom: `1 solid ${C.cinzaClaro}`,
+  },
+  tabelaLinha: { flexDirection: "row", paddingVertical: 6, borderBottom: `0.5 solid ${C.cinzaClaro}` },
+  tabelaRotulo: { width: 230, color: C.cinza, fontSize: 10 },
+  tabelaValor: { fontFamily: "Helvetica-Bold", color: C.marinho, fontSize: 10 },
+  observacoes: { fontSize: 10.5, lineHeight: 1.5, color: C.cinzaEscuro },
   // Páginas do formulário
-  tituloFormulario: { fontSize: 11, fontFamily: "Helvetica-Bold", height: ALTURA_TITULO_FORMULARIO },
+  tituloFormulario: {
+    height: ALTURA_TITULO_FORMULARIO,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  tituloFormularioTexto: { fontSize: 11, fontFamily: "Helvetica-Bold", color: C.marinho },
   // Páginas de fotos
   cabecalho: {
     height: ALTURA_CABECALHO,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    borderBottom: `1 solid ${COR_LINHA}`,
-    marginBottom: 0,
+    alignItems: "center",
+    borderBottom: `1.5 solid ${C.azul}`,
+    paddingBottom: 6,
+    marginBottom: ESPACO_APOS_CABECALHO,
   },
-  cabecalhoOP: { fontSize: 14, fontFamily: "Helvetica-Bold" },
-  cabecalhoTitulo: { fontSize: 9, color: COR_SECUNDARIA, marginTop: 2 },
-  legenda: { position: "absolute", fontSize: 8, textAlign: "center", paddingTop: 3, color: COR_SECUNDARIA },
+  cabecalhoMarca: { flexDirection: "row", alignItems: "center" },
+  cabecalhoNome: { fontSize: 10, color: C.marinho },
+  cabecalhoSub: { fontSize: 7.5, color: C.cinza, marginTop: 2 },
+  cabecalhoOP: { fontSize: 14, fontFamily: "Helvetica-Bold", color: C.marinho, textAlign: "right" },
+  legenda: { position: "absolute", fontSize: 7.5, textAlign: "center", paddingTop: 3, color: C.cinza },
 });
+
+function Simbolo({ altura, cor = C.azul }: { altura: number; cor?: string }) {
+  const { largura: w, altura: h, espessura, circulos, linhas } = SIMBOLO;
+  return (
+    <Svg viewBox={`0 0 ${w} ${h}`} width={(altura * w) / h} height={altura}>
+      {circulos.map((c, i) => (
+        <Circle key={`c${i}`} cx={c.cx} cy={c.cy} r={c.r} fill="none" stroke={cor} strokeWidth={espessura} />
+      ))}
+      {linhas.map((l, i) => (
+        <Line key={`l${i}`} {...l} stroke={cor} strokeWidth={espessura} strokeLinecap="round" />
+      ))}
+    </Svg>
+  );
+}
+
+function Marca({ altura, cor, tamanhoNome }: { altura: number; cor: string; tamanhoNome: number }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center" }}>
+      <Simbolo altura={altura} cor={cor} />
+      <Text style={[s.nomeMarca, { color: cor, fontSize: tamanhoNome, marginLeft: altura * 0.35 }]}>{MARCA.nome}</Text>
+    </View>
+  );
+}
 
 function plural(n: number, singular: string, pluralTexto: string) {
   return `${n} ${n === 1 ? singular : pluralTexto}`;
@@ -81,7 +144,9 @@ function plural(n: number, singular: string, pluralTexto: string) {
 function Rodape({ numeroOP }: { numeroOP: string }) {
   return (
     <View style={s.rodape} fixed>
-      <Text>Laudo de Inspeção de Produção · OP {numeroOP}</Text>
+      <Text>
+        <Text style={s.rodapeMarca}>{MARCA.nome}</Text> · Laudo de Inspeção de Produção · OP {numeroOP}
+      </Text>
       <Text render={({ pageNumber, totalPages }) => `Página ${pageNumber} de ${totalPages}`} />
     </View>
   );
@@ -90,31 +155,47 @@ function Rodape({ numeroOP }: { numeroOP: string }) {
 function PaginaIdentificacao({ dados }: { dados: DadosLaudoPdf }) {
   const observacoes = dados.observacoes?.trim();
   return (
-    <Page size="A4" style={[s.pagina, s.capa]}>
-      <Text style={s.rotulo}>LAUDO DE INSPEÇÃO DE PRODUÇÃO</Text>
-      <Text style={s.tituloCapa}>Peças acabadas</Text>
-      <Text style={s.referencia}>Formulário de referência: FM PRO 001 01</Text>
-
-      <View style={s.caixaOP}>
-        <Text style={s.rotulo}>ORDEM DE PRODUÇÃO</Text>
-        <Text style={s.numeroOP}>OP {dados.numeroOP}</Text>
-        <Text style={s.emissao}>Emitido em {formatarDataHora(dados.emitidoEm)}</Text>
-      </View>
-
-      <View style={s.secao}>
-        <Text style={s.tituloSecao}>Conteúdo</Text>
-        <Text style={s.itemResumo}>
-          • Formulário FM PRO 001 01: {plural(dados.formularios.length, "folha", "folhas")}
-        </Text>
-        <Text style={s.itemResumo}>• Registro fotográfico das peças: {plural(dados.pecas.length, "foto", "fotos")}</Text>
-      </View>
-
-      {observacoes ? (
-        <View style={s.secao}>
-          <Text style={s.tituloSecao}>Observações</Text>
-          <Text style={s.observacoes}>{observacoes}</Text>
+    <Page size="A4" style={[s.pagina, { paddingBottom: MARGEM + ALTURA_RODAPE }]}>
+      <View style={s.faixa}>
+        <Marca altura={40} cor="#ffffff" tamanhoNome={20} />
+        <View>
+          <Text style={s.faixaTitulo}>LAUDO DE INSPEÇÃO DE PRODUÇÃO</Text>
+          <Text style={s.faixaSub}>Peças acabadas · Ref. FM PRO 001 01</Text>
         </View>
-      ) : null}
+      </View>
+      <View style={s.faixaFina} />
+
+      <View style={s.corpoCapa}>
+        <View style={s.caixaOP}>
+          <View>
+            <Text style={s.rotulo}>ORDEM DE PRODUÇÃO</Text>
+            <Text style={s.numeroOP}>OP {dados.numeroOP}</Text>
+          </View>
+          <View>
+            <Text style={[s.rotulo, { textAlign: "right" }]}>EMISSÃO</Text>
+            <Text style={s.emissaoValor}>{formatarDataHora(dados.emitidoEm)}</Text>
+          </View>
+        </View>
+
+        <View style={s.secao}>
+          <Text style={s.tituloSecao}>CONTEÚDO DO LAUDO</Text>
+          <View style={s.tabelaLinha}>
+            <Text style={s.tabelaRotulo}>Formulário FM PRO 001 01</Text>
+            <Text style={s.tabelaValor}>{plural(dados.formularios.length, "folha", "folhas")}</Text>
+          </View>
+          <View style={s.tabelaLinha}>
+            <Text style={s.tabelaRotulo}>Registro fotográfico das peças</Text>
+            <Text style={s.tabelaValor}>{plural(dados.pecas.length, "foto", "fotos")}</Text>
+          </View>
+        </View>
+
+        {observacoes ? (
+          <View style={s.secao}>
+            <Text style={s.tituloSecao}>OBSERVAÇÕES</Text>
+            <Text style={s.observacoes}>{observacoes}</Text>
+          </View>
+        ) : null}
+      </View>
 
       <Rodape numeroOP={dados.numeroOP} />
     </Page>
@@ -131,12 +212,11 @@ function PaginaFormulario({ imagem, folha, numeroOP }: { imagem: ImagemPdf; folh
   const r = contain(imagem.largura / imagem.altura, caixaLargura, caixaAltura);
 
   return (
-    <Page
-      size="A4"
-      orientation={paisagem ? "landscape" : "portrait"}
-      style={[s.pagina, { padding: MARGEM_FORMULARIO }]}
-    >
-      <Text style={s.tituloFormulario}>Formulário FM PRO 001 01 — folha {folha}</Text>
+    <Page size="A4" orientation={paisagem ? "landscape" : "portrait"} style={[s.pagina, { padding: MARGEM_FORMULARIO }]}>
+      <View style={s.tituloFormulario}>
+        <Text style={s.tituloFormularioTexto}>Formulário FM PRO 001 01 — folha {folha}</Text>
+        <Marca altura={13} cor={C.azul} tamanhoNome={8} />
+      </View>
       <View style={{ width: caixaLargura, height: caixaAltura, alignItems: "center" }}>
         <Image src={{ data: imagem.dados, format: "jpg" }} style={{ width: r.largura, height: r.altura }} />
       </View>
@@ -153,13 +233,19 @@ function PaginasFotos({ dados }: { dados: DadosLaudoPdf }) {
       {paginas.map((pagina, i) => (
         <Page key={i} size="A4" style={[s.pagina, { padding: MARGEM }]}>
           <View style={s.cabecalho}>
+            <View style={s.cabecalhoMarca}>
+              <Simbolo altura={26} />
+              <View style={{ marginLeft: 8 }}>
+                <Text style={[s.nomeMarca, s.cabecalhoNome]}>{MARCA.nome}</Text>
+                <Text style={s.cabecalhoSub}>Registro fotográfico das peças acabadas</Text>
+              </View>
+            </View>
             <View>
               <Text style={s.cabecalhoOP}>OP {dados.numeroOP}</Text>
-              <Text style={s.cabecalhoTitulo}>Registro fotográfico das peças acabadas</Text>
+              <Text style={[s.cabecalhoSub, { textAlign: "right" }]}>
+                Fotos {pagina.fotos[0].numero}–{pagina.fotos.at(-1)!.numero} de {dados.pecas.length}
+              </Text>
             </View>
-            <Text style={s.cabecalhoTitulo}>
-              Fotos {pagina.fotos[0].numero}–{pagina.fotos.at(-1)!.numero} de {dados.pecas.length}
-            </Text>
           </View>
           <View style={{ position: "relative", width: AREA_FOTOS.largura, height: AREA_FOTOS.altura }}>
             {pagina.fotos.map((f) => (
@@ -169,10 +255,7 @@ function PaginasFotos({ dados }: { dados: DadosLaudoPdf }) {
                   style={{ position: "absolute", left: f.x, top: f.y, width: f.largura, height: f.altura }}
                 />
                 <Text
-                  style={[
-                    s.legenda,
-                    { left: f.legenda.x, top: f.legenda.y, width: f.legenda.largura, height: f.legenda.altura },
-                  ]}
+                  style={[s.legenda, { left: f.legenda.x, top: f.legenda.y, width: f.legenda.largura, height: f.legenda.altura }]}
                 >
                   Foto {f.numero}
                 </Text>
@@ -190,9 +273,10 @@ export function LaudoPdf({ dados }: { dados: DadosLaudoPdf }) {
   return (
     <Document
       title={`Laudo de Inspeção — OP ${dados.numeroOP}`}
+      author="Vanderhulst"
       subject="Laudo de Inspeção de Produção (FM PRO 001 01)"
-      creator="Automação Laudo de Inspeção"
-      producer="Automação Laudo de Inspeção"
+      creator="Vanderhulst · Automação Laudo de Inspeção"
+      producer="Vanderhulst · Automação Laudo de Inspeção"
       language="pt-BR"
     >
       <PaginaIdentificacao dados={dados} />
