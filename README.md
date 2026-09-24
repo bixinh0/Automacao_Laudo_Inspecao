@@ -1,7 +1,7 @@
-# Automação do Laudo de Inspeção — Vanderhulst
+# Automação do Laudo de Inspeção — Embarque Controlado (Vanderhulst)
 
-Aplicação web que monta automaticamente o **Laudo de Inspeção de Produção** (formulário
-FM QUA 004 01 rev2) em PDF. O operador abre o site no celular, digita o número da OP, fotografa o
+Aplicação web que monta automaticamente o **Laudo de Inspeção - Embarque Controlado** (FM QUA 004 01 rev2) em
+PDF, a partir da foto do formulário FM PRO 001 01 preenchido e das fotos das peças. O operador abre o site no celular, digita o número da OP, fotografa o
 formulário preenchido e as peças acabadas, e recebe o PDF pronto.
 
 - Nada para instalar: roda no navegador do celular ou do computador.
@@ -23,7 +23,7 @@ formulário preenchido e as peças acabadas, e recebe o PDF pronto.
 ## Estrutura do PDF
 
 1. **Identificação** — OP em destaque, data e hora da emissão, resumo do conteúdo e observações (a seção é omitida se estiver vazia).
-2. **Formulário FM QUA 004 01 rev2** — uma página por foto ("folha 1", "folha 2"…), com margens mínimas. A página
+2. **Formulário FM PRO 001 01** — uma página por foto ("folha 1", "folha 2"…), com margens mínimas. A página
    fica em retrato ou paisagem conforme a foto, para o formulário sair o maior possível.
 3. **Registro fotográfico das peças** — grade procedural, com cabeçalho da OP repetido em cada página.
 

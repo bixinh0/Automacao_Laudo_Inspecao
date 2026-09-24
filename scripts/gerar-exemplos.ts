@@ -43,7 +43,7 @@ function svgFormulario(largura: number, altura: number, folha: number) {
     <svg xmlns="http://www.w3.org/2000/svg" width="${largura}" height="${altura}">
       <rect width="100%" height="100%" fill="#f4f1ea"/>
       <rect x="100" y="100" width="${largura - 200}" height="${altura - 200}" fill="none" stroke="#000" stroke-width="6"/>
-      <text x="140" y="260" font-size="80" font-family="sans-serif" font-weight="bold">FM QUA 004 01 rev2 — LAUDO DE INSPEÇÃO DE PRODUÇÃO</text>
+      <text x="140" y="260" font-size="80" font-family="sans-serif" font-weight="bold">FM PRO 001 01 — LAUDO DE INSPEÇÃO DE PRODUÇÃO</text>
       <text x="140" y="340" font-size="54" font-family="sans-serif">Rev. 001 · Folha ${folha} (exemplo sintético)</text>
       ${linhas}
     </svg>`);

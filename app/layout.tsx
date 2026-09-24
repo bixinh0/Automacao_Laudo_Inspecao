@@ -1,10 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { CODIGO_FORMULARIO } from "@/lib/regras";
+import { CODIGO_LAUDO, TITULO_LAUDO } from "@/lib/regras";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Laudo de Inspeção · Vanderhulst",
-  description: `Monta o laudo de inspeção de produção (${CODIGO_FORMULARIO}) em PDF a partir das fotos.`,
+  description: `Monta o ${TITULO_LAUDO} (${CODIGO_LAUDO}) em PDF a partir das fotos.`,
   robots: { index: false, follow: false },
 };
 

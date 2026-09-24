@@ -1,7 +1,11 @@
 /** Regras de validação compartilhadas entre o navegador e o servidor. */
 
-/** Código do formulário de inspeção controlado, como aparece no laudo e na tela. */
-export const CODIGO_FORMULARIO = "FM QUA 004 01 rev2";
+/** Documento gerado pelo sistema: título e código que aparecem no cabeçalho e no rodapé do PDF. */
+export const TITULO_LAUDO = "Laudo de Inspeção - Embarque Controlado";
+export const CODIGO_LAUDO = "FM QUA 004 01 rev2";
+
+/** Formulário de inspeção preenchido à mão e fotografado (documento controlado, não é alterado). */
+export const CODIGO_FORMULARIO = "FM PRO 001 01";
 
 export const REGEX_OP = /^\d{4,8}$/;
 export const MAX_OBSERVACOES = 3000;

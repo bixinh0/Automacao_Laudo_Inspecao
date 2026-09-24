@@ -1,7 +1,7 @@
 import { Circle, Document, Image, Line, Page, StyleSheet, Svg, Text, View } from "@react-pdf/renderer";
 import { alocarFotos, contain } from "../layout";
 import { MARCA, SIMBOLO } from "../marca";
-import { CODIGO_FORMULARIO } from "../regras";
+import { CODIGO_FORMULARIO, CODIGO_LAUDO, TITULO_LAUDO } from "../regras";
 import { formatarDataHora } from "./formato";
 import {
   ALTURA_CABECALHO,
@@ -147,7 +147,7 @@ function Rodape({ numeroOP }: { numeroOP: string }) {
   return (
     <View style={s.rodape} fixed>
       <Text>
-        <Text style={s.rodapeMarca}>{MARCA.nome}</Text> · Laudo de Inspeção de Produção · OP {numeroOP}
+        <Text style={s.rodapeMarca}>{MARCA.nome}</Text> · {TITULO_LAUDO} · OP {numeroOP}
       </Text>
       <Text render={({ pageNumber, totalPages }) => `Página ${pageNumber} de ${totalPages}`} />
     </View>
@@ -161,8 +161,8 @@ function PaginaIdentificacao({ dados }: { dados: DadosLaudoPdf }) {
       <View style={s.faixa}>
         <Marca altura={40} cor="#ffffff" tamanhoNome={20} />
         <View>
-          <Text style={s.faixaTitulo}>LAUDO DE INSPEÇÃO DE PRODUÇÃO</Text>
-          <Text style={s.faixaSub}>Peças acabadas · Ref. {CODIGO_FORMULARIO}</Text>
+          <Text style={s.faixaTitulo}>{TITULO_LAUDO.toUpperCase()}</Text>
+          <Text style={s.faixaSub}>{CODIGO_LAUDO}</Text>
         </View>
       </View>
       <View style={s.faixaFina} />
@@ -182,7 +182,7 @@ function PaginaIdentificacao({ dados }: { dados: DadosLaudoPdf }) {
         <View style={s.secao}>
           <Text style={s.tituloSecao}>CONTEÚDO DO LAUDO</Text>
           <View style={s.tabelaLinha}>
-            <Text style={s.tabelaRotulo}>Formulário {CODIGO_FORMULARIO}</Text>
+            <Text style={s.tabelaRotulo}>{CODIGO_FORMULARIO}</Text>
             <Text style={s.tabelaValor}>{plural(dados.formularios.length, "folha", "folhas")}</Text>
           </View>
           <View style={s.tabelaLinha}>
@@ -273,7 +273,7 @@ export function LaudoPdf({ dados }: { dados: DadosLaudoPdf }) {
     <Document
       title={`Laudo de Inspeção — OP ${dados.numeroOP}`}
       author="Vanderhulst"
-      subject={`Laudo de Inspeção de Produção (${CODIGO_FORMULARIO})`}
+      subject={`${TITULO_LAUDO} (${CODIGO_LAUDO})`}
       creator="Vanderhulst · Automação Laudo de Inspeção"
       producer="Vanderhulst · Automação Laudo de Inspeção"
       language="pt-BR"
