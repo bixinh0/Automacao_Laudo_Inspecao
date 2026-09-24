@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { Logo } from "@/components/Logo";
 import { destinoSeguro } from "@/lib/acesso";
+import { TITULO_LAUDO } from "@/lib/regras";
 
-export const metadata: Metadata = { title: "Entrar · Laudo de Inspeção" };
+export const metadata: Metadata = { title: `Entrar · ${TITULO_LAUDO}` };
 
 const MENSAGENS: Record<string, string> = {
   senha: "Senha incorreta. Tente novamente.",
@@ -17,7 +18,7 @@ export default async function PaginaEntrar({ searchParams }: { searchParams: Pro
         <Logo altura={44} />
       </div>
       <form className="cartao" method="post" action="/api/entrar">
-        <h1>Laudo de Inspeção</h1>
+        <h1>{TITULO_LAUDO}</h1>
         <p className="ajuda">Digite a senha de acesso da fábrica.</p>
         <input type="hidden" name="destino" value={destinoSeguro(destino)} />
         <input

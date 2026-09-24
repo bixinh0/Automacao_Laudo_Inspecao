@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
+import { TITULO_LAUDO } from "@/lib/regras";
 
 export default function LayoutApp({ children }: { children: React.ReactNode }) {
   return (
@@ -17,7 +18,7 @@ export default function LayoutApp({ children }: { children: React.ReactNode }) {
             </form>
           </nav>
         </div>
-        <div className="topo-titulo">Laudo de Inspeção de Produção</div>
+        <div className="topo-titulo">{TITULO_LAUDO}</div>
       </header>
       <main>{children}</main>
     </>

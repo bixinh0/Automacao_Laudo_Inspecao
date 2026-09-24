@@ -3,7 +3,7 @@ import { CODIGO_LAUDO, TITULO_LAUDO } from "@/lib/regras";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Laudo de Inspeção · Vanderhulst",
+  title: `${TITULO_LAUDO} · Vanderhulst`,
   description: `Monta o ${TITULO_LAUDO} (${CODIGO_LAUDO}) em PDF a partir das fotos.`,
   robots: { index: false, follow: false },
 };
