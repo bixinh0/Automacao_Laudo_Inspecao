@@ -618,3 +618,326 @@ textarea {
   color: var(--cinza);
   white-space: nowrap;
 }
+
+/* ---------- Autenticação ---------- */
+.campo {
+  margin-bottom: 12px;
+}
+.campo label,
+.acao-formulario label {
+  display: block;
+  font-weight: 700;
+  color: var(--marinho);
+  margin-bottom: 4px;
+  font-size: 0.95rem;
+}
+.campo input,
+.campo select,
+.acao-formulario input,
+.acao-formulario select,
+.acao-formulario textarea {
+  width: 100%;
+  font: inherit;
+  padding: 11px 12px;
+  border: 2px solid var(--borda);
+  border-radius: 10px;
+  background: var(--branco);
+}
+.campo input:focus,
+.campo select:focus,
+.acao-formulario input:focus,
+.acao-formulario textarea:focus {
+  outline: 3px solid #9fd0ee;
+  border-color: var(--marca);
+}
+.campo .ajuda,
+.cartao form .ajuda {
+  margin: 4px 0 8px;
+}
+.senha-linha {
+  display: flex;
+  gap: 6px;
+}
+.senha-linha input {
+  flex: 1;
+  min-width: 0;
+}
+.mostrar-senha {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0 12px;
+  border: 2px solid var(--borda);
+  border-radius: 10px;
+  background: var(--fundo);
+  color: var(--azul);
+  cursor: pointer;
+}
+.forca {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: var(--cinza);
+}
+.forca-barras {
+  display: flex;
+  gap: 4px;
+}
+.forca-barras span {
+  width: 34px;
+  height: 6px;
+  border-radius: 3px;
+  background: #dfe5ec;
+}
+.forca-1 .cheia {
+  background: var(--vermelho);
+}
+.forca-2 .cheia {
+  background: #d98e04;
+}
+.forca-3 .cheia {
+  background: var(--marca);
+}
+.forca-4 .cheia {
+  background: #1f7a3a;
+}
+.rodape-form {
+  text-align: center;
+  margin: 12px 0 0;
+}
+.botao-link {
+  display: block;
+  margin: 12px auto 0;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--azul);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.entrar .cartao .botao-secundario {
+  margin-top: 16px;
+}
+.motivo {
+  background: #fdf1f0;
+  border-left: 4px solid var(--vermelho);
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+/* Menu */
+.contador-menu {
+  display: inline-block;
+  min-width: 20px;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: #ffb020;
+  color: var(--marinho);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+/* Meu perfil */
+.subtitulo {
+  margin: 20px 0 8px;
+}
+.dados-perfil {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0 0 8px;
+}
+.dados-perfil dt {
+  color: var(--cinza);
+}
+.dados-perfil dd {
+  margin: 0;
+  font-weight: 600;
+  word-break: break-word;
+}
+.historico > form .botao-secundario {
+  margin-top: 20px;
+}
+
+/* Gestão de usuários */
+.usuarios section {
+  margin-bottom: 24px;
+}
+.usuarios h2 span {
+  color: var(--cinza);
+  font-weight: 400;
+}
+.grupo-pendentes {
+  background: #fff8e8;
+  border: 2px solid #ffc75a;
+  border-radius: var(--raio);
+  padding: 12px;
+}
+.lista-usuarios {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  background: var(--branco);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+}
+.lista-usuarios > li {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--borda);
+}
+.lista-usuarios > li:last-child {
+  border-bottom: none;
+}
+.usuario-dados {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+  word-break: break-word;
+}
+.usuario-dados strong {
+  color: var(--marinho);
+}
+.usuario-dados em {
+  color: var(--cinza);
+  font-weight: 400;
+}
+.usuario-dados span {
+  color: var(--cinza);
+  font-size: 0.9rem;
+}
+.papel,
+.situacao {
+  font-weight: 700;
+}
+.papel-owner {
+  color: #7a4b00;
+}
+.papel-admin {
+  color: var(--azul);
+}
+.situacao-aprovado {
+  color: #1f7a3a;
+}
+.situacao-recusado,
+.situacao-suspenso {
+  color: var(--vermelho);
+}
+.acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.acoes button {
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 2px solid var(--borda);
+  border-radius: 9px;
+  background: var(--branco);
+  color: var(--azul);
+  cursor: pointer;
+}
+.acoes button.primario {
+  background: var(--azul);
+  border-color: var(--azul);
+  color: var(--branco);
+}
+.acoes button.perigo {
+  color: var(--vermelho);
+  border-color: #f0c3bf;
+}
+.acoes button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.acoes.destaque button {
+  min-height: 46px;
+  flex: 1;
+}
+.acoes .alerta {
+  width: 100%;
+  margin: 4px 0 0;
+  font-size: 0.88rem;
+}
+.acao-formulario {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.senha-provisoria {
+  background: var(--azul-claro);
+  border: 2px solid var(--marca);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.senha-provisoria p {
+  margin: 0 0 6px;
+}
+.senha-provisoria code {
+  display: block;
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin: 6px 0 10px;
+  color: var(--marinho);
+  user-select: all;
+}
+.sem-acoes {
+  margin: 0;
+  font-size: 0.85rem;
+}
+.filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.filtros select {
+  flex: 1;
+  min-width: 150px;
+  font: inherit;
+  padding: 9px 10px;
+  border: 2px solid var(--borda);
+  border-radius: 10px;
+  background: var(--branco);
+}
+.filtros button {
+  font: inherit;
+  font-weight: 700;
+  padding: 0 16px;
+  min-height: 44px;
+  border: none;
+  border-radius: 10px;
+  background: var(--azul);
+  color: var(--branco);
+  cursor: pointer;
+}
+.auditoria {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  font-size: 0.9rem;
+}
+.auditoria li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--borda);
+}
+
+/* Menu com 4 itens no celular: só o símbolo da marca e itens sem quebra de linha. */
+.topo nav a,
+.topo nav button {
+  white-space: nowrap;
+}
+@media (max-width: 460px) {
+  .topo .logo-nome {
+    display: none;
+  }
+  .topo nav a {
+    padding: 12px 6px;
+  }
+}

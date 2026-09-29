@@ -1,3 +1,4 @@
+import { gestorLiberado } from "@/lib/sessao";
 import { NextResponse } from "next/server";
 import { enviarLaudoAoOneDrive, listarPendentesOneDrive } from "@/lib/laudos";
 
@@ -9,6 +10,7 @@ const POR_LOTE = 15;
 
 /** Envia ao OneDrive os laudos que ficaram pendentes (falha de rede, emitidos antes da conexão…). */
 export async function POST(req: Request) {
+  if (!(await gestorLiberado())) return NextResponse.json({ erro: "Apenas OWNER e ADMIN." }, { status: 403 });
   const pendentes = await listarPendentesOneDrive(POR_LOTE);
   let enviados = 0;
   for (const laudo of pendentes) if (await enviarLaudoAoOneDrive(laudo.id)) enviados++;

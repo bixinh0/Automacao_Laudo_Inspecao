@@ -1,23 +1,4 @@
-/**
- * Acesso por senha única (variável SENHA_ACESSO). Depois de digitada, o
- * navegador guarda um cookie por 180 dias. Trocar a senha na Vercel invalida
- * todos os cookies, pois o valor guardado é derivado dela.
- *
- * Usa só Web Crypto para funcionar tanto no proxy quanto nas rotas.
- */
-
-export const COOKIE_ACESSO = "laudo_acesso";
-export const DURACAO_ACESSO_S = 180 * 24 * 60 * 60;
-
-export function senhaAcesso(): string {
-  return (process.env.SENHA_ACESSO ?? "").trim();
-}
-
-export async function tokenAcesso(senha: string): Promise<string> {
-  const dados = new TextEncoder().encode(`laudo-inspecao:acesso:v1:${senha}`);
-  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", dados));
-  return Array.from(hash, (b) => b.toString(16).padStart(2, "0")).join("");
-}
+/** Utilitários de segurança sem dependência do servidor (usados também no proxy). */
 
 /** Comparação em tempo constante, para não vazar o valor pelo tempo de resposta. */
 export function iguais(a: string, b: string): boolean {
@@ -27,14 +8,14 @@ export function iguais(a: string, b: string): boolean {
   return diferenca === 0;
 }
 
-export async function acessoValido(cookie: string | undefined): Promise<boolean> {
-  const senha = senhaAcesso();
-  if (!senha || !cookie) return false;
-  return iguais(cookie, await tokenAcesso(senha));
-}
-
 /** Aceita só caminhos internos, para o redirecionamento pós-login não levar a outro site. */
 export function destinoSeguro(destino: unknown): string {
   const d = typeof destino === "string" ? destino : "";
   return d.startsWith("/") && !d.startsWith("//") && !d.startsWith("/\\") ? d : "/";
+}
+
+/** IP de quem fez a requisição (a Vercel informa em x-forwarded-for). */
+export function ipDaRequisicao(req: Request): string {
+  const encaminhado = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return encaminhado || req.headers.get("x-real-ip") || "desconhecido";
 }

@@ -10,13 +10,16 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "exemplos": "tsx scripts/gerar-exemplos.ts"
+    "exemplos": "tsx scripts/gerar-exemplos.ts",
+    "test:banco": "./scripts/testar-banco.sh",
+    "test:e2e": "./scripts/testar-e2e.sh"
   },
   "engines": {
     "node": ">=20.9.0"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.9.0",
+    "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.1",
     "fflate": "^0.8.3",
     "next": "^16.3.6",
@@ -29,6 +32,7 @@
     "@types/node": "^22.20.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "playwright": "^1.56.1",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^5.0.1"

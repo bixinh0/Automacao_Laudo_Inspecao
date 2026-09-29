@@ -7,7 +7,7 @@ formulário preenchido e as peças acabadas, e recebe o PDF pronto.
 - Nada para instalar: roda no navegador do celular ou do computador.
 - A câmera abre direto pelo navegador (`<input type="file" accept="image/*" capture="environment">`).
 - O formulário entra no laudo **como imagem**, exatamente como foi fotografado. Nenhum dado é lido ou transcrito.
-- Acesso restrito por senha única da fábrica; o celular lembra a senha por 180 dias.
+- Acesso individual por e-mail corporativo e senha, com cadastro aprovado manualmente por OWNER ou ADMIN (sem envio de e-mail).
 - Identidade visual Vanderhulst no site e no PDF (`lib/marca.ts`).
 - Custo de infraestrutura zero (planos gratuitos da Vercel e do Supabase — leia os [limites](#limites-dos-planos-gratuitos)).
 
@@ -15,7 +15,12 @@ formulário preenchido e as peças acabadas, e recebe o PDF pronto.
 
 | Tela | Endereço | Uso |
 |---|---|---|
-| Entrada | `/entrar` | Senha de acesso. Todas as outras telas e APIs exigem a senha. |
+| Login | `/entrar` | E-mail corporativo e senha. Todas as outras telas e APIs exigem sessão e conta aprovada. |
+| Cadastro | `/cadastro` | Nome, e-mail `@vanderhulst.com.br`, departamento e senha. A conta nasce **pendente**. |
+| Aguardando | `/aguardando` | Aviso de cadastro pendente, recusado (com motivo) ou suspenso. |
+| Nova senha | `/trocar-senha` | Troca obrigatória no primeiro acesso após redefinição (bloqueia o resto do sistema). |
+| Meu perfil | `/perfil` | Nome, departamento e troca da própria senha; papel e situação só leitura. |
+| Usuários | `/usuarios` | Só OWNER e ADMIN: pendentes em destaque, lista com filtros, ações e registro de auditoria. |
 | Envio | `/` | Número da OP, fotos do formulário, fotos das peças, observações. Única tela usada no chão de fábrica. |
 | Confirmação | `/laudos/{id}` | Mensagem de sucesso, número da OP e botão **Baixar PDF**. |
 | Histórico | `/historico` | Laudos emitidos, agrupados por dia, com busca por número da OP e ZIP de cada dia. |
@@ -84,14 +89,50 @@ Se a conexão cair no meio, **Tentar novamente** continua de onde parou (as foto
 O navegador nunca recebe chave do Supabase. O link de download do PDF é gerado a cada clique em
 **Baixar PDF** e vale 24 horas (`VALIDADE_DOWNLOAD_S` em `lib/laudos.ts`).
 
-## Acesso por senha
+## Autenticação e gestão de usuários
 
-- A senha fica na variável `SENHA_ACESSO` da Vercel. Sem ela, ninguém entra (a tela de entrada avisa que falta configurar).
-- Depois de digitar a senha, o navegador guarda um cookie por 180 dias; o botão **Sair** apaga.
-- Para trocar a senha (por exemplo, quando alguém sai da empresa): altere `SENHA_ACESSO` na Vercel e faça
-  **Redeploy**. Todos os aparelhos terão de digitar a nova senha.
-- Senha errada tem espera de 1 segundo por tentativa, o que dificulta tentativas em série.
-- O site pede aos buscadores para não ser indexado.
+Supabase Auth guarda as senhas (hash bcrypt) e as sessões; a tabela `profiles` guarda nome, departamento,
+papel e situação. **Nenhum e-mail é enviado**: quem libera o acesso é um OWNER ou ADMIN.
+
+- **Cadastro**: só e-mails exatamente `@vanderhulst.com.br` (subdomínios e `.com` são recusados), conferido no
+  navegador e no servidor (`ALLOWED_EMAIL_DOMAIN`) e de novo no banco. Senha com 8+ caracteres, letra e número,
+  com indicador de força. A conta nasce **PENDENTE**.
+- **Login**: e-mail e senha. Erro sempre genérico ("E-mail ou senha inválidos"); as mensagens de pendente,
+  recusado (com motivo) ou suspenso só aparecem depois de a senha ser conferida. 5 falhas em 15 minutos bloqueiam
+  por 15 minutos, por e-mail e por IP.
+- **Sessão**: cookie httpOnly, secure, SameSite=Lax; nada em `localStorage`. A situação da conta é conferida a cada
+  requisição (`proxy.ts`): aprovar ou suspender vale no clique seguinte.
+- **Senha esquecida**: OWNER ou ADMIN usa **Redefinir senha**; o sistema mostra uma senha provisória **uma única
+  vez**, válida por 24 h, e o usuário é obrigado a trocá-la no primeiro acesso. Tudo registrado na auditoria.
+  (Quem redefine conhece a provisória por alguns instantes; se um dia houver envio de e-mail, troque por código
+  enviado ao próprio usuário — a coluna `profiles.email_confirmado_em` já está reservada para isso.)
+- **Auditoria**: aprovar, recusar, suspender, promover, rebaixar, editar, remover, redefinir e trocar senha ficam
+  em `log_auditoria`, com nome e e-mail de quem fez e de quem sofreu a ação (legível mesmo após remoções).
+  Os últimos registros aparecem na tela **Usuários**.
+- **Laudos**: cada laudo registra quem o emitiu, mostrado no histórico e na confirmação.
+
+### Papéis
+
+| Ação | OWNER | ADMIN | USUARIO |
+|---|:---:|:---:|:---:|
+| Usar o sistema de laudos | sim | sim | sim |
+| Ver usuários, aprovar, recusar, suspender, editar, redefinir senha, remover | sim | sim (exceto OWNER e outros ADMIN) | não |
+| Promover a ADMIN / rebaixar ADMIN | sim | não | não |
+| Alterar o cadastro do OWNER | só o próprio OWNER (nome e departamento) | não | não |
+
+Ninguém muda o próprio papel ou situação; o OWNER não se rebaixa, suspende nem remove; existe um único OWNER.
+Cada regra é aplicada **três vezes**: na interface (só esconde botões), no servidor (`lib/permissoes.ts`, 403 em
+toda requisição) e no banco (RLS + gatilho `proteger_profiles`, que vale até para a chave secreta).
+
+### OWNER
+
+Criado automaticamente no primeiro acesso ao site a partir de `OWNER_EMAIL`, `OWNER_NOME`, `OWNER_DEPARTAMENTO` e
+`OWNER_SENHA_INICIAL`, já **APROVADO** e com a senha inicial marcada como provisória (sem prazo): no primeiro login
+ele define a própria senha. Depois disso, `OWNER_SENHA_INICIAL` pode ser apagada da Vercel.
+
+**Recuperação de emergência** (só o OWNER, que ninguém mais pode redefinir): na Vercel, defina
+`OWNER_SENHA_INICIAL` e `OWNER_REDEFINIR_SENHA=sim` e faça **Redeploy**. No próximo acesso ao site a senha do OWNER
+volta a ser a inicial, provisória; o fato fica na auditoria. Depois remova `OWNER_REDEFINIR_SENHA`.
 
 ## Identidade visual
 
@@ -213,14 +254,19 @@ Tenha este código num repositório seu no GitHub (pode ser privado).
    **South America (São Paulo)** e anote a senha do banco (não será usada pela aplicação).
 2. No menu lateral, abra **SQL Editor** → **New query**, cole todo o conteúdo de
    [`supabase/migrations/0001_estrutura_inicial.sql`](supabase/migrations/0001_estrutura_inicial.sql) e clique em **Run**.
-   Isso cria as tabelas `laudo` e `imagem` e o bucket privado `laudos`. Depois, numa nova query, faça o mesmo
-   com [`0003_capacidade.sql`](supabase/migrations/0003_capacidade.sql) (limpeza automática). A `0002` só é
-   necessária para o envio ao OneDrive.
+   Isso cria as tabelas `laudo` e `imagem` e o bucket privado `laudos`. Depois, uma query de cada vez, rode
+   [`0002_envio_onedrive.sql`](supabase/migrations/0002_envio_onedrive.sql),
+   [`0003_capacidade.sql`](supabase/migrations/0003_capacidade.sql) e
+   [`0004_autenticacao.sql`](supabase/migrations/0004_autenticacao.sql) (usuários, papéis, RLS e auditoria).
 3. Confira em **Storage** que o bucket `laudos` aparece, marcado como privado.
 4. Em **Project Settings → API** (ou **API Keys**), copie:
    - a **Project URL** (`https://xxxx.supabase.co`);
    - a **chave secreta** (`sb_secret_...`) ou, em projetos antigos, a chave **service_role**.
-     Ela dá acesso total ao projeto: nunca a publique nem a coloque no código.
+     Ela dá acesso total ao projeto: nunca a publique nem a coloque no código;
+   - a **chave publicável** (`sb_publishable_...`) ou, em projetos antigos, a **anon**. Fica só no servidor.
+5. Em **Authentication → Sign In / Providers → Email**, desligue **Confirm email** (o controle é a aprovação
+   manual). Em **Authentication → Settings**, desligue **Allow new users to sign up**: as contas são criadas só
+   pelo servidor, que valida o domínio.
 
 ### 3. Hospedagem — Vercel (plano Hobby)
 
@@ -232,7 +278,13 @@ Tenha este código num repositório seu no GitHub (pode ser privado).
    |---|---|
    | `SUPABASE_URL` | Project URL do passo 2.4 |
    | `SUPABASE_SECRET_KEY` | chave secreta do passo 2.4 |
-   | `SENHA_ACESSO` | senha que os operadores vão digitar para entrar no site |
+   | `SUPABASE_PUBLISHABLE_KEY` | chave publicável do passo 2.4 |
+   | `ALLOWED_EMAIL_DOMAIN` | `vanderhulst.com.br` |
+   | `OWNER_EMAIL` | `luan.godoi@vanderhulst.com.br` |
+   | `OWNER_NOME` | `Luan Godoi` |
+   | `OWNER_DEPARTAMENTO` | `QUALIDADE` |
+   | `OWNER_SENHA_INICIAL` | senha do primeiro acesso (troca obrigatória); pode apagar depois |
+   | `LIMITE_FALHAS_POR_IP` | (opcional) padrão `5`; ver [Limites](#limites-dos-planos-gratuitos) |
    | `FUSO_HORARIO` | (opcional) padrão `America/Sao_Paulo` |
    | `LIMITE_ARMAZENAMENTO_MB` | (opcional) espaço máximo antes de apagar PDFs antigos; padrão `850` |
 
@@ -243,7 +295,8 @@ A cada `git push` na branch principal a Vercel publica a nova versão sozinha.
 
 ### 4. Teste de aceite
 
-1. Abra a URL no celular e digite a senha de acesso. Digite uma OP, fotografe o formulário e algumas peças (inclua fotos com o celular em pé).
+1. Abra a URL, entre com o OWNER e defina a sua senha. Cadastre um usuário de teste pelo celular, aprove-o em
+   **Usuários** e entre com ele. Digite uma OP, fotografe o formulário e algumas peças (inclua fotos com o celular em pé).
 2. Toque em **Gerar laudo**, espere a confirmação e baixe o PDF.
 3. Abra **Histórico** e busque pela OP.
 
@@ -259,7 +312,9 @@ Dica: no celular, use "Adicionar à tela inicial" no menu do navegador para ter 
 
 ```bash
 npm install
-npm test            # testes da grade procedural e da geração do PDF (não precisam do Supabase)
+npm test            # testes da grade, do PDF, das regras de conta e da matriz de permissões
+npm run test:banco  # migrations + RLS + gatilhos num PostgreSQL local (PGHOST/PGPORT/PGUSER)
+npm run test:e2e    # critérios de aceite da autenticação no navegador, contra um Supabase simulado
 npm run exemplos    # gera PDFs de exemplo em exemplos/ com 1, 2, 3, 4, 7, 15 e 30 fotos sintéticas
 npm run exemplos -- 5 12   # quantidades escolhidas
 npm run dev         # servidor local (precisa de .env.local com as variáveis do Supabase)
@@ -273,14 +328,18 @@ a tag EXIF de rotação), e mostram o tempo gasto. Referência medida num contê
 ### Organização
 
 ```
-proxy.ts                         exige a senha em todas as rotas (exceto /entrar)
+proxy.ts                         sessão, situação da conta, senha provisória e rotas de gestão
 app/
-  entrar/page.tsx                tela de senha
+  entrar, cadastro, aguardando, trocar-senha   telas públicas / de transição
+  (app)/usuarios/page.tsx        gestão de usuários (OWNER e ADMIN)
+  (app)/perfil/page.tsx          meu perfil
   (app)/page.tsx                 tela de envio
   (app)/laudos/[id]/page.tsx     confirmação
   (app)/historico/page.tsx       histórico com busca
   api/laudos/…                   criar laudo, processar foto, gerar e baixar PDF
-  api/entrar, api/sair           login e logout
+  api/auth/…                     entrar, cadastro, sair, trocar senha
+  api/usuarios/[id]              ações da gestão de usuários (permissão conferida em toda chamada)
+  api/perfil                     o próprio usuário edita nome e departamento
   (app)/onedrive/page.tsx        conectar OneDrive e reenviar pendentes
   api/onedrive/…                 conectar, retorno da Microsoft, pendentes, desconectar
   api/laudos/zip                 lista os PDFs de um dia com links temporários
@@ -291,7 +350,12 @@ lib/imagem.ts                    sharp: EXIF, redução, JPEG, SHA-256
 lib/manutencao.ts                limpeza automática do armazenamento
 lib/pdf/                         documento @react-pdf/renderer
 lib/marca.ts                     cores e símbolo Vanderhulst
-lib/acesso.ts                    senha de acesso (cookie)
+lib/contas.ts                    domínio, política e força de senha, departamentos
+lib/permissoes.ts                quem pode fazer o quê (função pura, testada)
+lib/sessao.ts                    sessão Supabase Auth em cookie httpOnly
+lib/usuarios.ts                  cadastro, login, OWNER, ações, auditoria
+supabase/testes/                 testes das regras de permissão no banco
+testes/e2e/                      teste de ponta a ponta + Supabase simulado
 components/BaixarZipDia.tsx      ZIP dos laudos de um dia, montado no navegador
 lib/onedrive.ts                  Microsoft Graph: autorização, pastas e envio
 lib/integracao.ts                autorização do OneDrive guardada (cifrada) no banco
@@ -309,7 +373,11 @@ scripts/gerar-exemplos.ts        PDFs de exemplo sem Supabase
 - **Supabase Free**: 1 GB de Storage, ~5 GB/mês de tráfego de saída e 500 MB de banco — ver
   [Capacidade](#capacidade-600-laudos-por-mês-no-plano-gratuito). Acompanhe em **Project Settings → Usage**.
   Laudos com muitas fotos ocupam mais (15 fotos ≈ 3 MB de PDF); a limpeza automática se ajusta sozinha.
-- **Diagnóstico**: depois de entrar com a senha, abra `/api/diagnostico` para conferir variáveis, tabelas e bucket.
+- **Diagnóstico**: entrando como OWNER ou ADMIN, abra `/api/diagnostico` para conferir variáveis, tabelas e bucket.
+- **Bloqueio por IP na fábrica**: o limite de 5 falhas em 15 minutos também vale por IP. Na rede da fábrica
+  todos os celulares costumam sair pelo mesmo IP, então 5 senhas erradas de qualquer pessoa bloqueiam o login
+  de todos por 15 minutos. Se isso atrapalhar, aumente `LIMITE_FALHAS_POR_IP` (ex.: `30`); o limite por
+  e-mail continua 5.
 - **Supabase Free pausa o projeto após 7 dias sem uso**. Basta reativar no painel (**Restore project**). Em uso
   diário isso não acontece.
 - Fotos em **HEIC**: o iPhone converte para JPEG ao enviar pelo navegador. Se chegar um HEIC mesmo assim, o
@@ -317,6 +385,6 @@ scripts/gerar-exemplos.ts        PDFs de exemplo sem Supabase
 
 ## Fora do escopo desta versão
 
-Login individual por usuário, permissões, painéis, transcrição do formulário e validação de medidas. Ver a seção de evolução
+Envio de e-mail (confirmação e recuperação por código), painéis, transcrição do formulário e validação de medidas. Ver a seção de evolução
 prevista na especificação: fase 2 (digitação dos dados), fase 3 (transcrição por IA com revisão humana) e
 fase 4 (validação contra a tabela de tolerâncias).

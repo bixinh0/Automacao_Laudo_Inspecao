@@ -1,3 +1,4 @@
+import { gestorLiberado } from "@/lib/sessao";
 import { NextResponse, type NextRequest } from "next/server";
 import { iguais } from "@/lib/acesso";
 import { salvarConexao } from "@/lib/integracao";
@@ -7,6 +8,7 @@ export const runtime = "nodejs";
 
 /** A Microsoft devolve o usuário para cá depois do login, com o código de autorização. */
 export async function GET(req: NextRequest) {
+  if (!(await gestorLiberado())) return NextResponse.json({ erro: "Apenas OWNER e ADMIN." }, { status: 403 });
   const voltar = (parametro: string) => {
     const resposta = NextResponse.redirect(new URL(`/onedrive?${parametro}`, req.url), 303);
     resposta.cookies.delete({ name: COOKIE_ESTADO, path: "/api/onedrive" });

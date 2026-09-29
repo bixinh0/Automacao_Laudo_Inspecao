@@ -74,7 +74,10 @@ export default async function PaginaHistorico({ searchParams }: { searchParams: 
                   <li key={l.id}>
                     <div>
                       <strong>OP {l.numeroOP}</strong>
-                      <span>{formatarDataHora(new Date(l.criadoEm))}</span>
+                      <span>
+                        {formatarDataHora(new Date(l.criadoEm))}
+                        {l.criadoPorNome ? ` · ${l.criadoPorNome}` : ""}
+                      </span>
                       {comOneDrive &&
                         (l.onedriveUrl ? (
                           <a className="selo-onedrive ok" href={l.onedriveUrl} target="_blank" rel="noreferrer">

@@ -19,6 +19,8 @@ export interface Laudo {
   onedriveErro: string | null;
   /** Quando o PDF foi apagado pela limpeza automática para liberar espaço (migration 0003). */
   pdfRemovidoEm: string | null;
+  /** Quem emitiu (migration 0004); nulo nos laudos anteriores à autenticação. */
+  criadoPorNome: string | null;
 }
 
 export interface Imagem {
@@ -52,6 +54,7 @@ type LinhaLaudo = {
   onedrive_url?: string | null;
   onedrive_erro?: string | null;
   pdf_removido_em?: string | null;
+  criado_por_nome?: string | null;
 };
 type LinhaImagem = {
   id: string;
@@ -75,6 +78,7 @@ function paraLaudo(l: LinhaLaudo): Laudo {
     onedriveUrl: l.onedrive_url ?? null,
     onedriveErro: l.onedrive_erro ?? null,
     pdfRemovidoEm: l.pdf_removido_em ?? null,
+    criadoPorNome: l.criado_por_nome ?? null,
   };
 }
 
@@ -102,10 +106,14 @@ export function nomeArquivoPdf(numeroOP: string) {
   return `laudo-OP-${numeroOP}.pdf`;
 }
 
-export async function criarLaudo(numeroOP: string, observacoes: string | null): Promise<Laudo> {
+export async function criarLaudo(
+  numeroOP: string,
+  observacoes: string | null,
+  autor: { id: string; nome: string },
+): Promise<Laudo> {
   const { data, error } = await supabase()
     .from("laudo")
-    .insert({ numero_op: numeroOP, observacoes })
+    .insert({ numero_op: numeroOP, observacoes, criado_por: autor.id, criado_por_nome: autor.nome })
     .select()
     .single<LinhaLaudo>();
   if (error) throw error;

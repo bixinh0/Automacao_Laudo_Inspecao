@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { gestorLiberado } from "@/lib/sessao";
 import { estadoOneDrive } from "@/lib/integracao";
 import { listarPendentesOneDrive } from "@/lib/laudos";
 
@@ -14,6 +16,7 @@ export default async function PaginaOneDrive({
 }: {
   searchParams: Promise<{ ok?: string; erro?: string; enviados?: string; falhas?: string; desconectado?: string }>;
 }) {
+  if (!(await gestorLiberado())) redirect("/");
   const q = await searchParams;
   const estado = await estadoOneDrive();
   const pendentes = estado.conectado ? await listarPendentesOneDrive() : [];

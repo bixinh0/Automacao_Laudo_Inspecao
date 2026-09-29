@@ -33,7 +33,8 @@ export default async function PaginaConfirmacao({ params }: { params: Promise<{ 
       <h1>Laudo gerado</h1>
       <p className="op-destaque">OP {laudo.numeroOP}</p>
       <p className="ajuda">
-        {formatarDataHora(new Date(laudo.criadoEm))} · {folhas} {folhas === 1 ? "folha" : "folhas"} do formulário · {fotos}{" "}
+        {formatarDataHora(new Date(laudo.criadoEm))}
+        {laudo.criadoPorNome ? ` · por ${laudo.criadoPorNome}` : ""} · {folhas} {folhas === 1 ? "folha" : "folhas"} do formulário · {fotos}{" "}
         {fotos === 1 ? "foto" : "fotos"} das peças
       </p>
       <a href={`/api/laudos/${laudo.id}/pdf`} className="botao-enviar">

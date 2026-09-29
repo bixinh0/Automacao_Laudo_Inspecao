@@ -52,6 +52,9 @@ export async function limparArmazenamento(): Promise<{ abandonados: number; pdfs
       resultado.abandonados++;
     }
 
+    // Tentativas de login só importam por 15 minutos (limite de tentativas).
+    await supabase().from("tentativas_login").delete().lt("criado_em", umDiaAtras);
+
     const { data, error } = await supabase()
       .rpc("laudos_para_liberar_espaco", { limite_bytes: limiteArmazenamentoBytes() })
       .limit(50);

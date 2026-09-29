@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { explicarErroConfiguracao } from "@/lib/api";
+import { podeGerenciar } from "@/lib/permissoes";
+import { chavePublica, usuarioLiberado } from "@/lib/sessao";
 import { BUCKET, supabase, urlSupabase } from "@/lib/supabase";
+import { dominioPermitido } from "@/lib/usuarios";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +19,9 @@ function falha(e: unknown): Resultado {
  * Confere a configuração sem expor segredos: abra /api/diagnostico no navegador.
  */
 export async function GET() {
+  const eu = await usuarioLiberado();
+  if (!eu || !podeGerenciar(eu)) return NextResponse.json({ erro: "Apenas OWNER e ADMIN." }, { status: 403 });
+
   const url = urlSupabase();
   const chave = (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
   const tipoChave = !chave
@@ -32,6 +38,9 @@ export async function GET() {
     variaveis: {
       SUPABASE_URL: url || "ausente",
       SUPABASE_SECRET_KEY: tipoChave,
+      SUPABASE_PUBLISHABLE_KEY: chavePublica() ? "definida" : "ausente",
+      ALLOWED_EMAIL_DOMAIN: dominioPermitido() || "ausente",
+      OWNER_EMAIL: process.env.OWNER_EMAIL ? "definido" : "ausente",
     },
   };
 
@@ -41,7 +50,7 @@ export async function GET() {
   }
 
   const checagens: Record<string, Resultado> = {};
-  for (const tabela of ["laudo", "imagem"]) {
+  for (const tabela of ["laudo", "imagem", "profiles", "log_auditoria", "tentativas_login"]) {
     try {
       const { error } = await supabase().from(tabela).select("id").limit(1);
       checagens[`tabela ${tabela}`] = error ? falha(error) : { ok: true, detalhe: "ok" };

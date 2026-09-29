@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { erro, lerJson, tratarErro } from "@/lib/api";
 import { criarLaudo, criarUrlEnvio } from "@/lib/laudos";
+import { usuarioLiberado } from "@/lib/sessao";
 import { CODIGO_FORMULARIO, MAX_FOLHAS_FORMULARIO, MAX_FOTOS_PECAS, MAX_OBSERVACOES, opValida, TIPOS, type TipoImagem } from "@/lib/regras";
 
 export const runtime = "nodejs";
@@ -35,8 +36,11 @@ export async function POST(req: Request) {
   if (nPecas > MAX_FOTOS_PECAS) return erro(`No máximo ${MAX_FOTOS_PECAS} fotos de peças por laudo.`);
   if (new Set(itens.map((i) => `${i.tipo}-${i.ordem}`)).size !== itens.length) return erro("Lista de fotos inválida.");
 
+  const autor = await usuarioLiberado();
+  if (!autor) return erro("Sessão expirada. Entre novamente.", 401);
+
   try {
-    const laudo = await criarLaudo(numeroOP, observacoes);
+    const laudo = await criarLaudo(numeroOP, observacoes, autor);
     const envios = await Promise.all(
       itens.map(async (i) => ({ ...i, url: await criarUrlEnvio(laudo.id, i.tipo, i.ordem) })),
     );
