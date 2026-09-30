@@ -9,6 +9,7 @@ export const DEPARTAMENTOS = {
   ADMINISTRATIVO: "Administrativo",
   COMERCIAL: "Comercial",
   ENGENHARIA: "Engenharia",
+  LOGISTICA: "Logística",
   PRODUCAO: "Produção",
   QUALIDADE: "Qualidade",
   RECURSOS_HUMANOS: "Recursos Humanos",

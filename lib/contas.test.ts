@@ -53,6 +53,7 @@ describe("departamentos", () => {
       "Administrativo",
       "Comercial",
       "Engenharia",
+      "Logística",
       "Produção",
       "Qualidade",
       "Recursos Humanos",

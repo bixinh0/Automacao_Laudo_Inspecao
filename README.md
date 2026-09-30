@@ -256,8 +256,9 @@ Tenha este código num repositório seu no GitHub (pode ser privado).
    [`supabase/migrations/0001_estrutura_inicial.sql`](supabase/migrations/0001_estrutura_inicial.sql) e clique em **Run**.
    Isso cria as tabelas `laudo` e `imagem` e o bucket privado `laudos`. Depois, uma query de cada vez, rode
    [`0002_envio_onedrive.sql`](supabase/migrations/0002_envio_onedrive.sql),
-   [`0003_capacidade.sql`](supabase/migrations/0003_capacidade.sql) e
-   [`0004_autenticacao.sql`](supabase/migrations/0004_autenticacao.sql) (usuários, papéis, RLS e auditoria).
+   [`0003_capacidade.sql`](supabase/migrations/0003_capacidade.sql),
+   [`0004_autenticacao.sql`](supabase/migrations/0004_autenticacao.sql) (usuários, papéis, RLS e auditoria) e
+   [`0005_departamento_logistica.sql`](supabase/migrations/0005_departamento_logistica.sql).
 3. Confira em **Storage** que o bucket `laudos` aparece, marcado como privado.
 4. Em **Project Settings → API** (ou **API Keys**), copie:
    - a **Project URL** (`https://xxxx.supabase.co`);
