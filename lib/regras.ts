@@ -28,7 +28,19 @@ export const PERFIS: Record<TipoImagem, { maiorLado: number; qualidade: number }
   PECA: { maiorLado: 1280, qualidade: 78 },
 };
 
-
 export function opValida(op: string): boolean {
   return REGEX_OP.test(op);
+}
+
+export function limiteFotos(tipo: TipoImagem): number {
+  return tipo === "FORMULARIO" ? MAX_FOLHAS_FORMULARIO : MAX_FOTOS_PECAS;
+}
+
+/** Lê e valida número da OP e observações vindos da tela (criar, atualizar e emitir o laudo). */
+export function lerDadosLaudo(corpo: Record<string, unknown>): { numeroOP: string; observacoes: string | null } | { erro: string } {
+  const numeroOP = String(corpo.numeroOP ?? "").trim();
+  const observacoes = String(corpo.observacoes ?? "").trim() || null;
+  if (!opValida(numeroOP)) return { erro: "O número da OP deve ter de 4 a 8 dígitos." };
+  if (observacoes && observacoes.length > MAX_OBSERVACOES) return { erro: `Observações com no máximo ${MAX_OBSERVACOES} caracteres.` };
+  return { numeroOP, observacoes };
 }

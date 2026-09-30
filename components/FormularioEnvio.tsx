@@ -1,58 +1,114 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
+import {
+  CHAVE_RASCUNHO_LOCAL,
+  emAndamento,
+  gravarRascunhoLocal,
+  lerRascunhoLocal,
+  pendencias,
+  progressoFoto,
+  rotuloEstado,
+  type EstadoFoto,
+} from "@/lib/envio";
+import { reduzirFoto } from "@/lib/reduzirFoto";
 import {
   CODIGO_FORMULARIO,
+  limiteFotos,
   MAX_BYTES_ARQUIVO,
-  MAX_FOLHAS_FORMULARIO,
-  MAX_FOTOS_PECAS,
   MAX_OBSERVACOES,
   opValida,
+  TIPOS,
   type TipoImagem,
 } from "@/lib/regras";
-import { reduzirFoto } from "@/lib/reduzirFoto";
 
-interface Anexo {
+/**
+ * Tela de envio. Cada foto sobe assim que é escolhida:
+ *  1. com a OP informada, o laudo é criado como rascunho no banco;
+ *  2. cada foto ganha uma vaga no rascunho e vai direto ao Storage (URL assinada);
+ *  3. o servidor processa a foto e devolve a miniatura, mostrada no lugar da prévia local.
+ * "Gerar laudo" só monta o PDF com as fotos que já estão no servidor.
+ * OP, observações e o rascunho ficam no sessionStorage: recarregar a página retoma de onde parou.
+ */
+
+interface Foto {
+  /** Identifica a foto na tela (a do servidor só existe depois da reserva). */
+  chave: string;
+  tipo: TipoImagem;
+  estado: EstadoFoto;
+  /** Fração já enviada do arquivo, durante "enviando". */
+  fracao: number;
+  id?: string;
+  url?: string;
+  /** Ausente nas fotos recuperadas do servidor depois de recarregar. */
+  arquivo?: File;
+  /** Prévia local (object URL) até a miniatura do servidor chegar. */
+  previa?: string;
+  miniatura?: string;
+  erro?: string;
+}
+
+interface FotoServidor {
   id: string;
-  arquivo: File;
-  miniatura: string;
+  tipo: TipoImagem;
+  ordem: number;
+  recebida: boolean;
+  miniatura: string | null;
 }
 
-type Fase = "preenchendo" | "enviando" | "gerando" | "erro";
+type EstadoRascunho =
+  | { id: string; emitido: true }
+  | { id: string; emitido: false; numeroOP: string; observacoes: string; fotos: FotoServidor[] };
 
-/** Envio em andamento, guardado para retomar de onde parou se a conexão cair. */
-interface Sessao {
-  laudoId: string;
-  urls: Map<string, string>;
-  concluidas: Set<string>;
-  criadaEm: number;
-}
+type Fase = "preenchendo" | "gerando" | "erro";
 
-// As URLs de envio assinadas valem 2 horas; depois disso recomeça do zero.
-const VALIDADE_SESSAO_MS = 90 * 60 * 1000;
 const ENVIOS_SIMULTANEOS = 3;
+const ESPERA_DIGITACAO_MS = 700;
 
-let contadorAnexos = 0;
+let contadorFotos = 0;
+const novaChave = () => `f${++contadorFotos}`;
 
 function plural(n: number, um: string, varios: string) {
   return `${n} ${n === 1 ? um : varios}`;
 }
 
-async function postJson<T>(url: string, corpo: unknown): Promise<T> {
+class ErroHttp extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+}
+
+async function pedir<T>(metodo: string, url: string, corpo?: unknown): Promise<T> {
   let resposta: Response;
   try {
-    resposta = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo) });
+    resposta = await fetch(url, {
+      method: metodo,
+      headers: corpo === undefined ? undefined : { "Content-Type": "application/json" },
+      body: corpo === undefined ? undefined : JSON.stringify(corpo),
+    });
   } catch {
-    throw new Error("Sem conexão com o servidor. Verifique a internet e toque em Tentar novamente.");
+    throw new ErroHttp("Sem conexão com o servidor. Verifique a internet e tente de novo.", 0);
   }
+  if (resposta.status === 204) return undefined as T;
   const dados = await resposta.json().catch(() => ({}));
-  if (!resposta.ok) throw new Error(dados.erro || `Falha no servidor (HTTP ${resposta.status}).`);
+  if (!resposta.ok) throw new ErroHttp(dados.erro || `Falha no servidor (HTTP ${resposta.status}).`, resposta.status);
   return dados as T;
 }
 
+const mensagem = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
 /** Envia o arquivo direto ao Storage pela URL assinada, informando o progresso. */
-function enviarArquivo(url: string, arquivo: Blob, nome: string, aoProgredir: (fracao: number) => void): Promise<void> {
+function enviarArquivo(
+  url: string,
+  arquivo: Blob,
+  nome: string,
+  aoIniciar: (xhr: XMLHttpRequest) => void,
+  aoProgredir: (fracao: number) => void,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
@@ -61,47 +117,71 @@ function enviarArquivo(url: string, arquivo: Blob, nome: string, aoProgredir: (f
       if (e.lengthComputable) aoProgredir(e.loaded / e.total);
     };
     xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300
-        ? resolve()
-        : reject(new Error(`Falha ao enviar a foto "${nome}" (HTTP ${xhr.status}).`));
-    xhr.onerror = () => reject(new Error("A conexão caiu durante o envio. Toque em Tentar novamente para continuar de onde parou."));
+      xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`O servidor recusou a foto (HTTP ${xhr.status}).`));
+    xhr.onerror = () => reject(new Error("A conexão caiu durante o envio."));
+    xhr.onabort = () => reject(new Error("Envio cancelado."));
     const corpo = new FormData();
     corpo.append("cacheControl", "3600");
     corpo.append("", arquivo, nome);
+    aoIniciar(xhr);
     xhr.send(corpo);
   });
 }
 
-async function emParalelo<T>(itens: T[], limite: number, tarefa: (item: T) => Promise<void>) {
-  let proximo = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(limite, itens.length) }, async () => {
-      while (proximo < itens.length) await tarefa(itens[proximo++]);
-    }),
-  );
+function lerLocal() {
+  try {
+    return lerRascunhoLocal(sessionStorage.getItem(CHAVE_RASCUNHO_LOCAL));
+  } catch {
+    return null; // navegação privada ou armazenamento bloqueado: segue sem restaurar
+  }
+}
+
+function gravarLocal(op: string, observacoes: string, rascunhoId: string | null) {
+  try {
+    if (!op && !observacoes && !rascunhoId) sessionStorage.removeItem(CHAVE_RASCUNHO_LOCAL);
+    else sessionStorage.setItem(CHAVE_RASCUNHO_LOCAL, gravarRascunhoLocal({ op, observacoes, rascunhoId }));
+  } catch {
+    // sem armazenamento: a tela funciona, só não restaura ao recarregar
+  }
 }
 
 function BlocoFotos({
+  tipo,
   titulo,
   instrucao,
   rotuloBotao,
-  anexos,
-  contador,
+  fotos,
+  opInformada,
+  desabilitado,
   aoAdicionar,
   aoRemover,
-  desabilitado,
+  aoTentarDeNovo,
 }: {
+  tipo: TipoImagem;
   titulo: string;
   instrucao: string;
   rotuloBotao: string;
-  anexos: Anexo[];
-  contador: string;
-  aoAdicionar: (e: ChangeEvent<HTMLInputElement>) => void;
-  aoRemover: (id: string) => void;
+  fotos: Foto[];
+  opInformada: boolean;
   desabilitado: boolean;
+  aoAdicionar: (e: ChangeEvent<HTMLInputElement>) => void;
+  aoRemover: (chave: string) => void;
+  aoTentarDeNovo: (chave: string) => void;
 }) {
+  const prontas = fotos.filter((f) => f.estado === "pronta").length;
+  const nome = tipo === "FORMULARIO" ? ["folha do formulário", "folhas do formulário"] : ["foto das peças", "fotos das peças"];
+  const contador =
+    fotos.length === 0
+      ? tipo === "FORMULARIO"
+        ? "Nenhuma foto do formulário"
+        : "Nenhuma foto das peças"
+      : prontas === fotos.length
+        ? `${plural(prontas, nome[0], nome[1])} ${prontas === 1 ? "enviada" : "enviadas"}`
+        : `${prontas} de ${plural(fotos.length, nome[0], nome[1])} ${fotos.length === 1 ? "enviada" : "enviadas"}`;
+  const falhas = fotos.flatMap((f, i) => (f.estado === "erro" && f.erro ? [`Foto ${i + 1}: ${f.erro}`] : []));
+
   return (
-    <section className="bloco">
+    <section className={`bloco ${tipo === "FORMULARIO" ? "bloco-formulario" : "bloco-pecas"}`}>
       <h2>{titulo}</h2>
       <p className="ajuda">{instrucao}</p>
       <label className={`botao-foto${desabilitado ? " desabilitado" : ""}`}>
@@ -114,24 +194,79 @@ function BlocoFotos({
           onChange={aoAdicionar}
           disabled={desabilitado}
           className="oculto"
+          data-tipo={tipo}
         />
       </label>
-      <p className={`contador${anexos.length ? " ok" : ""}`} aria-live="polite">
+      <p className={`contador${fotos.length && prontas === fotos.length ? " ok" : ""}`} aria-live="polite">
         {contador}
       </p>
-      {anexos.length > 0 && (
+      {fotos.length > 0 && (
         <ul className="miniaturas">
-          {anexos.map((a, i) => (
-            <li key={a.id}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={a.miniatura} alt={`Foto ${i + 1}`} loading="lazy" decoding="async" />
-              <span className="numero">{i + 1}</span>
-              {!desabilitado && (
-                <button type="button" className="remover" onClick={() => aoRemover(a.id)} aria-label={`Remover foto ${i + 1}`}>
-                  ×
-                </button>
-              )}
-            </li>
+          {fotos.map((f, i) => {
+            const src = f.miniatura ?? f.previa;
+            const pct = Math.round(progressoFoto(f.estado, f.fracao) * 100);
+            const rotulo = rotuloEstado(f.estado, f.fracao, opInformada);
+            return (
+              <li key={f.chave} className={`foto foto-${f.estado}`} data-estado={f.estado} title={f.erro ?? rotulo}>
+                {src ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={src}
+                    alt={`Foto ${i + 1}`}
+                    decoding="async"
+                    onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                  />
+                ) : (
+                  <span className="sem-previa" aria-hidden="true">
+                    📷
+                  </span>
+                )}
+                <span className="numero">{i + 1}</span>
+                {f.estado === "pronta" ? (
+                  <span className="selo-foto" aria-label={`Foto ${i + 1} enviada`}>
+                    ✓
+                  </span>
+                ) : (
+                  <div className="estado-foto">
+                    {f.estado !== "erro" && (
+                      <div
+                        className="mini-trilho"
+                        role="progressbar"
+                        aria-label={`Envio da foto ${i + 1}`}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={pct}
+                      >
+                        <div className="preenchimento" style={{ width: `${pct}%` }} />
+                      </div>
+                    )}
+                    <span>{rotulo}</span>
+                  </div>
+                )}
+                {f.estado === "erro" && f.arquivo && !desabilitado && (
+                  <button
+                    type="button"
+                    className="tentar"
+                    onClick={() => aoTentarDeNovo(f.chave)}
+                    aria-label={`Enviar a foto ${i + 1} de novo`}
+                  >
+                    ↻
+                  </button>
+                )}
+                {f.estado !== "removendo" && !desabilitado && (
+                  <button type="button" className="remover" onClick={() => aoRemover(f.chave)} aria-label={`Remover foto ${i + 1}`}>
+                    ×
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {falhas.length > 0 && (
+        <ul className="falhas-foto" role="alert">
+          {falhas.map((t) => (
+            <li key={t}>{t}</li>
           ))}
         </ul>
       )}
@@ -143,28 +278,175 @@ export default function FormularioEnvio() {
   const router = useRouter();
   const [op, setOp] = useState("");
   const [observacoes, setObservacoes] = useState("");
-  const [formularios, setFormularios] = useState<Anexo[]>([]);
-  const [pecas, setPecas] = useState<Anexo[]>([]);
+  const [rascunhoId, setRascunhoId] = useState<string | null>(null);
+  const [fotos, setFotosTela] = useState<Foto[]>([]);
+  const [restaurado, setRestaurado] = useState(false);
   const [fase, setFase] = useState<Fase>("preenchendo");
-  const [progresso, setProgresso] = useState(0);
-  const [etapa, setEtapa] = useState("");
   const [mensagemErro, setMensagemErro] = useState("");
   const [aviso, setAviso] = useState("");
-  const sessao = useRef<Sessao | null>(null);
-  // Fotos já reduzidas, por anexo: numa nova tentativa não precisa reduzir de novo.
+
+  // O trabalho assíncrono lê sempre o valor atual por estas referências.
+  const fotosRef = useRef<Foto[]>([]);
+  const opRef = useRef("");
+  const obsRef = useRef("");
+  const rascunhoRef = useRef<string | null>(null);
+  const restauradoRef = useRef(false);
+  const criandoRascunho = useRef<Promise<string | null> | null>(null);
+  const sincronizado = useRef({ op: "", observacoes: "" });
+  const reservando = useRef<Record<TipoImagem, boolean>>({ FORMULARIO: false, PECA: false });
+  const ativos = useRef(0);
+  const xhrs = useRef(new Map<string, XMLHttpRequest>());
+  // Fotos já reduzidas: numa nova tentativa não precisa reduzir de novo.
   const reduzidas = useRef(new Map<string, Blob>());
+  opRef.current = op;
+  obsRef.current = observacoes;
 
-  // Libera a memória das miniaturas ao sair da tela.
-  const anexosRef = useRef<Anexo[]>([]);
-  anexosRef.current = [...formularios, ...pecas];
-  useEffect(() => () => anexosRef.current.forEach((a) => URL.revokeObjectURL(a.miniatura)), []);
+  const mudar = useCallback((f: (lista: Foto[]) => Foto[]) => {
+    fotosRef.current = f(fotosRef.current);
+    setFotosTela(fotosRef.current);
+  }, []);
+  const atualizar = useCallback(
+    (chave: string, dados: Partial<Foto>) => mudar((l) => l.map((f) => (f.chave === chave ? { ...f, ...dados } : f))),
+    [mudar],
+  );
+  const obter = (chave: string) => fotosRef.current.find((f) => f.chave === chave);
+  // Foto ainda na tela e não sendo removida: o trabalho sobre ela continua.
+  const viva = (chave: string) => {
+    const f = obter(chave);
+    return Boolean(f && f.estado !== "removendo");
+  };
 
-  const ocupado = fase === "enviando" || fase === "gerando";
+  function descartar(chave: string) {
+    const f = obter(chave);
+    if (f?.previa) URL.revokeObjectURL(f.previa);
+    reduzidas.current.delete(chave);
+    xhrs.current.delete(chave);
+    mudar((l) => l.filter((x) => x.chave !== chave));
+  }
 
-  // Qualquer alteração depois de uma falha invalida o envio parcial.
-  function alterou() {
-    sessao.current = null;
-    if (fase === "erro") setFase("preenchendo");
+  function definirRascunho(id: string | null) {
+    rascunhoRef.current = id;
+    setRascunhoId(id);
+  }
+
+  /** Cria o rascunho no banco (uma vez) assim que houver OP válida. */
+  function garantirRascunho(): Promise<string | null> {
+    if (rascunhoRef.current) return Promise.resolve(rascunhoRef.current);
+    if (!opValida(opRef.current)) return Promise.resolve(null);
+    if (!criandoRascunho.current) {
+      const dados = { numeroOP: opRef.current, observacoes: obsRef.current };
+      criandoRascunho.current = pedir<{ id: string }>("POST", "/api/laudos", dados)
+        .then((r) => {
+          sincronizado.current = { op: dados.numeroOP, observacoes: dados.observacoes };
+          definirRascunho(r.id);
+          return r.id;
+        })
+        .finally(() => {
+          criandoRascunho.current = null;
+        });
+    }
+    return criandoRascunho.current;
+  }
+
+  /** Leva OP e observações ao rascunho, se mudaram desde a última vez. */
+  async function sincronizar() {
+    const id = rascunhoRef.current;
+    const atual = { op: opRef.current, observacoes: obsRef.current };
+    if (!id || !opValida(atual.op)) return;
+    if (atual.op === sincronizado.current.op && atual.observacoes === sincronizado.current.observacoes) return;
+    try {
+      await pedir("PATCH", `/api/laudos/${id}`, { numeroOP: atual.op, observacoes: atual.observacoes });
+      sincronizado.current = atual;
+    } catch {
+      // Sem problema: a OP e as observações vão de novo ao gerar o laudo.
+    }
+  }
+
+  /** Reserva no rascunho as fotos escolhidas de um tipo, na ordem da escolha. */
+  async function reservar(tipo: TipoImagem, chaves: string[]) {
+    reservando.current[tipo] = true;
+    mudar((l) => l.map((f) => (chaves.includes(f.chave) ? { ...f, estado: "reservando" as const, erro: undefined } : f)));
+    try {
+      const id = await garantirRascunho();
+      const pedidas = chaves.filter((c) => obter(c)?.estado === "reservando");
+      if (!id) {
+        mudar((l) => l.map((f) => (pedidas.includes(f.chave) ? { ...f, estado: "aguardando" as const } : f)));
+        return;
+      }
+      if (!pedidas.length) return;
+      const { envios } = await pedir<{ envios: { id: string; ordem: number; url: string }[] }>(
+        "POST",
+        `/api/laudos/${id}/imagens`,
+        { tipo, quantidade: pedidas.length },
+      );
+      pedidas.forEach((chave, i) => {
+        // Removida enquanto a vaga era reservada: libera a vaga no servidor.
+        if (obter(chave)?.estado !== "reservando") pedir("DELETE", `/api/laudos/${id}/imagens/${envios[i].id}`).catch(() => {});
+        else atualizar(chave, { estado: "fila", id: envios[i].id, url: envios[i].url });
+      });
+    } catch (e) {
+      mudar((l) =>
+        l.map((f) => (chaves.includes(f.chave) && f.estado === "reservando" ? { ...f, estado: "erro" as const, erro: mensagem(e) } : f)),
+      );
+    } finally {
+      reservando.current[tipo] = false;
+      avancar();
+    }
+  }
+
+  async function enviarFoto(chave: string) {
+    ativos.current++;
+    try {
+      const foto = obter(chave)!;
+      const id = rascunhoRef.current!;
+      atualizar(chave, { estado: "reduzindo", fracao: 0, erro: undefined });
+      let arquivo = reduzidas.current.get(chave);
+      if (!arquivo) {
+        arquivo = await reduzirFoto(foto.arquivo!, foto.tipo);
+        reduzidas.current.set(chave, arquivo);
+      }
+      if (!viva(chave)) return;
+      atualizar(chave, { estado: "enviando" });
+      await enviarArquivo(
+        foto.url!,
+        arquivo,
+        foto.arquivo!.name,
+        (xhr) => xhrs.current.set(chave, xhr),
+        (fracao) => viva(chave) && atualizar(chave, { fracao }),
+      );
+      xhrs.current.delete(chave);
+      if (!viva(chave)) return;
+      atualizar(chave, { estado: "processando" });
+      const r = await pedir<FotoServidor>("POST", `/api/laudos/${id}/imagens/${foto.id}`);
+      if (!viva(chave)) return;
+      const atual = obter(chave);
+      if (atual?.previa) URL.revokeObjectURL(atual.previa);
+      reduzidas.current.delete(chave);
+      atualizar(chave, { estado: "pronta", miniatura: r.miniatura ?? undefined, previa: undefined, arquivo: undefined });
+    } catch (e) {
+      if (viva(chave)) atualizar(chave, { estado: "erro", erro: mensagem(e) });
+    } finally {
+      xhrs.current.delete(chave);
+      ativos.current--;
+      avancar();
+    }
+  }
+
+  /** Dá o próximo passo possível em cada foto: reservar vaga e enviar, poucas por vez. */
+  function avancar() {
+    if (!restauradoRef.current) return;
+    if (rascunhoRef.current || opValida(opRef.current)) {
+      for (const tipo of TIPOS) {
+        if (reservando.current[tipo]) continue; // as novas entram quando esta reserva terminar
+        const esperando = fotosRef.current.filter((f) => f.tipo === tipo && f.estado === "aguardando");
+        if (esperando.length) reservar(tipo, esperando.map((f) => f.chave));
+      }
+    }
+    while (ativos.current < ENVIOS_SIMULTANEOS) {
+      const proxima = fotosRef.current.find((f) => f.estado === "fila");
+      if (!proxima) break;
+      enviarFoto(proxima.chave);
+    }
   }
 
   function adicionar(tipo: TipoImagem) {
@@ -183,104 +465,189 @@ export default function FormularioEnvio() {
         }
         return true;
       });
-      const atuais = tipo === "FORMULARIO" ? formularios : pecas;
-      const limite = tipo === "FORMULARIO" ? MAX_FOLHAS_FORMULARIO : MAX_FOTOS_PECAS;
-      const cabem = validos.slice(0, Math.max(0, limite - atuais.length));
+      const limite = limiteFotos(tipo);
+      const atuais = fotosRef.current.filter((f) => f.tipo === tipo).length;
+      const cabem = validos.slice(0, Math.max(0, limite - atuais));
       if (cabem.length < validos.length) avisos.push(`Limite de ${limite} fotos atingido.`);
-      const novos = cabem.map((arquivo) => ({ id: `a${++contadorAnexos}`, arquivo, miniatura: URL.createObjectURL(arquivo) }));
-      (tipo === "FORMULARIO" ? setFormularios : setPecas)((lista) => [...lista, ...novos]);
+      if (!opValida(opRef.current) && !rascunhoRef.current && cabem.length) {
+        avisos.push("As fotos serão enviadas assim que o número da OP for informado.");
+      }
+      const novas: Foto[] = cabem.map((arquivo) => ({
+        chave: novaChave(),
+        tipo,
+        estado: "aguardando",
+        fracao: 0,
+        arquivo,
+        previa: URL.createObjectURL(arquivo),
+      }));
+      mudar((l) => [...l, ...novas]);
       setAviso(avisos.join(" "));
-      if (novos.length) alterou();
+      if (fase === "erro") setFase("preenchendo");
+      avancar();
     };
   }
 
-  function remover(tipo: TipoImagem) {
-    return (id: string) => {
-      const setter = tipo === "FORMULARIO" ? setFormularios : setPecas;
-      setter((atuais) => {
-        const alvo = atuais.find((a) => a.id === id);
-        if (alvo) URL.revokeObjectURL(alvo.miniatura);
-        reduzidas.current.delete(id);
-        return atuais.filter((a) => a.id !== id);
+  async function remover(chave: string) {
+    const foto = obter(chave);
+    if (!foto) return;
+    const anterior = foto.estado;
+    xhrs.current.get(chave)?.abort();
+    const id = rascunhoRef.current;
+    // Sem vaga no servidor (ainda esperando ou reservando): basta tirar da tela.
+    if (!foto.id || !id) return descartar(chave);
+    atualizar(chave, { estado: "removendo" });
+    try {
+      await pedir("DELETE", `/api/laudos/${id}/imagens/${foto.id}`);
+      descartar(chave);
+      if (fase === "erro") setFase("preenchendo");
+    } catch (e) {
+      atualizar(chave, {
+        estado: anterior === "pronta" ? "pronta" : "erro",
+        erro: anterior === "pronta" ? undefined : "Envio interrompido.",
       });
-      alterou();
-    };
+      setAviso(`Não foi possível remover a foto: ${mensagem(e)}`);
+    }
   }
 
-  const faltando: string[] = [];
-  if (!opValida(op)) faltando.push("número da OP (4 a 8 dígitos)");
-  if (formularios.length === 0) faltando.push("foto do formulário");
-  if (pecas.length === 0) faltando.push("fotos das peças");
-  const podeEnviar = faltando.length === 0 && !ocupado;
+  function tentarDeNovo(chave: string) {
+    const f = obter(chave);
+    if (!f?.arquivo) return;
+    atualizar(chave, { estado: f.id && f.url ? "fila" : "aguardando", erro: undefined, fracao: 0 });
+    avancar();
+  }
 
-  async function enviar() {
-    if (!podeEnviar) return;
-    setFase("enviando");
+  // Ao abrir: restaura OP e observações e, se havia rascunho, as fotos já enviadas.
+  useEffect(() => {
+    const local = lerLocal();
+    if (local) {
+      opRef.current = local.op;
+      obsRef.current = local.observacoes;
+      setOp(local.op);
+      setObservacoes(local.observacoes);
+    }
+    let cancelado = false;
+    (async () => {
+      if (local?.rascunhoId) {
+        try {
+          const r = await pedir<EstadoRascunho>("GET", `/api/laudos/${local.rascunhoId}`);
+          if (cancelado) return;
+          if (r.emitido) {
+            // O laudo foi gerado, mas a resposta não chegou antes de recarregar.
+            gravarLocal("", "", null);
+            router.replace(`/laudos/${r.id}`);
+            return;
+          }
+          definirRascunho(r.id);
+          sincronizado.current = { op: r.numeroOP, observacoes: r.observacoes };
+          const recuperadas: Foto[] = r.fotos.map((f) => ({
+            chave: novaChave(),
+            tipo: f.tipo,
+            id: f.id,
+            estado: f.recebida ? "pronta" : "processando",
+            fracao: 1,
+            miniatura: f.miniatura ?? undefined,
+          }));
+          mudar(() => recuperadas);
+          // Envios interrompidos pelo recarregamento: se o arquivo chegou, o servidor processa; senão, sai da lista.
+          const interrompidas = recuperadas.filter((f) => f.estado === "processando");
+          const descartadas = await Promise.all(
+            interrompidas.map(async (f) => {
+              try {
+                const p = await pedir<FotoServidor>("POST", `/api/laudos/${r.id}/imagens/${f.id}`);
+                atualizar(f.chave, { estado: "pronta", miniatura: p.miniatura ?? undefined });
+                return 0;
+              } catch {
+                await pedir("DELETE", `/api/laudos/${r.id}/imagens/${f.id}`).catch(() => {});
+                descartar(f.chave);
+                return 1;
+              }
+            }),
+          );
+          const n = descartadas.reduce((a: number, b) => a + b, 0);
+          if (n) setAviso(`${plural(n, "foto não terminou", "fotos não terminaram")} de subir antes de recarregar. Escolha de novo.`);
+        } catch (e) {
+          if (cancelado) return;
+          if (e instanceof ErroHttp && (e.status === 404 || e.status === 409)) {
+            setAviso("O rascunho anterior não existe mais (rascunhos expiram em 1 dia). Envie as fotos de novo.");
+          } else {
+            // Mantém o vínculo: recarregar de novo, com conexão, recupera as fotos.
+            definirRascunho(local.rascunhoId);
+            setAviso(`Não foi possível recuperar as fotos já enviadas: ${mensagem(e)} Recarregue a página.`);
+          }
+        }
+      }
+      if (cancelado) return;
+      restauradoRef.current = true;
+      setRestaurado(true);
+      avancar();
+    })();
+    return () => {
+      cancelado = true;
+    };
+    // Só na montagem.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Guarda OP, observações e o rascunho a cada mudança (depois de restaurar, para não apagar o que havia).
+  useEffect(() => {
+    if (restaurado) gravarLocal(op, observacoes, rascunhoId);
+  }, [op, observacoes, rascunhoId, restaurado]);
+
+  // Com a OP informada (e a pessoa parou de digitar), cria o rascunho ou atualiza o existente.
+  useEffect(() => {
+    if (!restaurado || fase === "gerando") return;
+    const t = setTimeout(() => {
+      if (rascunhoRef.current) sincronizar();
+      else if (opValida(op))
+        garantirRascunho()
+          .then(avancar)
+          .catch((e) => setAviso(`Não foi possível criar o rascunho: ${mensagem(e)}`));
+    }, ESPERA_DIGITACAO_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [op, observacoes, restaurado]);
+
+  // Avisa antes de sair com fotos subindo ou o PDF sendo gerado.
+  const ocupado = fase === "gerando";
+  const subindo = fotos.some((f) => emAndamento(f.estado) && f.estado !== "aguardando");
+  useEffect(() => {
+    if (!subindo && !ocupado) return;
+    const aoSair = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", aoSair);
+    return () => window.removeEventListener("beforeunload", aoSair);
+  }, [subindo, ocupado]);
+
+  // Libera a memória das prévias ao sair da tela.
+  useEffect(
+    () => () => {
+      for (const f of fotosRef.current) if (f.previa) URL.revokeObjectURL(f.previa);
+      for (const x of xhrs.current.values()) x.abort();
+    },
+    [],
+  );
+
+  const formularios = fotos.filter((f) => f.tipo === "FORMULARIO");
+  const pecas = fotos.filter((f) => f.tipo === "PECA");
+  const faltando = pendencias(op, fotos);
+  const podeGerar = restaurado && faltando.length === 0 && !ocupado && Boolean(rascunhoId);
+  const bloqueado = !restaurado || ocupado;
+
+  async function gerar() {
+    const id = rascunhoRef.current;
+    if (!podeGerar || !id) return;
+    setFase("gerando");
     setMensagemErro("");
     setAviso("");
-    setEtapa("Preparando envio…");
-
-    const itens = [
-      ...formularios.map((a, i) => ({ tipo: "FORMULARIO" as const, ordem: i + 1, anexo: a })),
-      ...pecas.map((a, i) => ({ tipo: "PECA" as const, ordem: i + 1, anexo: a })),
-    ];
-    const chave = (i: { tipo: TipoImagem; ordem: number }) => `${i.tipo}-${i.ordem}`;
-    // Cada foto pesa igual na barra: 10% reduzir no celular, 90% enviar. O PDF fecha os últimos 10%.
-    const avanco = new Map<string, number>();
-    const atualizar = () => {
-      const soma = itens.reduce((t, i) => t + (avanco.get(chave(i)) ?? 0), 0);
-      setProgresso((soma / itens.length) * 0.9);
-    };
-
     try {
-      if (sessao.current && Date.now() - sessao.current.criadaEm > VALIDADE_SESSAO_MS) sessao.current = null;
-      if (!sessao.current) {
-        const r = await postJson<{ id: string; envios: { tipo: TipoImagem; ordem: number; url: string }[] }>("/api/laudos", {
-          numeroOP: op,
-          observacoes,
-          arquivos: itens.map(({ tipo, ordem }) => ({ tipo, ordem })),
-        });
-        sessao.current = {
-          laudoId: r.id,
-          urls: new Map(r.envios.map((e) => [chave(e), e.url])),
-          concluidas: new Set(),
-          criadaEm: Date.now(),
-        };
-      }
-      const s = sessao.current;
-      for (const k of s.concluidas) avanco.set(k, 1);
-      atualizar();
-
-      const atualizarEtapa = () => setEtapa(`Enviando fotos: ${s.concluidas.size} de ${itens.length} prontas`);
-      atualizarEtapa();
-
-      await emParalelo(itens, ENVIOS_SIMULTANEOS, async (item) => {
-        const k = chave(item);
-        if (s.concluidas.has(k)) return;
-        let reduzida = reduzidas.current.get(item.anexo.id);
-        if (!reduzida) {
-          reduzida = await reduzirFoto(item.anexo.arquivo, item.tipo);
-          reduzidas.current.set(item.anexo.id, reduzida);
-        }
-        avanco.set(k, 0.1);
-        atualizar();
-        await enviarArquivo(s.urls.get(k)!, reduzida, item.anexo.arquivo.name, (f) => {
-          avanco.set(k, 0.1 + f * 0.9);
-          atualizar();
-        });
-        s.concluidas.add(k);
-        avanco.set(k, 1);
-        atualizar();
-        atualizarEtapa();
+      await pedir("POST", `/api/laudos/${id}/pdf`, {
+        numeroOP: op,
+        observacoes,
+        imagens: [...formularios, ...pecas].map((f) => f.id),
       });
-
-      setFase("gerando");
-      setEtapa("Processando as fotos e montando o PDF…");
-      await postJson(`/api/laudos/${s.laudoId}/pdf`, { formularios: formularios.length, pecas: pecas.length });
-      setProgresso(1);
-      router.push(`/laudos/${s.laudoId}`);
+      gravarLocal("", "", null);
+      router.push(`/laudos/${id}`);
     } catch (e) {
-      setMensagemErro(e instanceof Error ? e.message : String(e));
+      setMensagemErro(mensagem(e));
       setFase("erro");
     }
   }
@@ -290,108 +657,109 @@ export default function FormularioEnvio() {
       className="formulario"
       onSubmit={(e) => {
         e.preventDefault();
-        enviar();
+        gerar();
       }}
     >
-      <section className="bloco">
-        <label htmlFor="op">
-          <h2>Número da OP</h2>
-        </label>
-        <input
-          id="op"
-          className="campo-op"
-          type="text"
-          inputMode="numeric"
-          pattern="\d{4,8}"
-          autoComplete="off"
-          enterKeyHint="done"
-          maxLength={8}
-          placeholder="Ex.: 123456"
-          value={op}
-          disabled={ocupado}
-          onChange={(e) => {
-            setOp(e.target.value.replace(/\D/g, "").slice(0, 8));
-            alterou();
-          }}
-        />
-        {op.length > 0 && !opValida(op) && <p className="ajuda alerta">A OP tem de 4 a 8 dígitos.</p>}
-      </section>
+      <div className="coluna-dados">
+        <section className="bloco bloco-op">
+          <label htmlFor="op">
+            <h2>Número da OP</h2>
+          </label>
+          <input
+            id="op"
+            className="campo-op"
+            type="text"
+            inputMode="numeric"
+            pattern="\d{4,8}"
+            autoComplete="off"
+            enterKeyHint="done"
+            maxLength={8}
+            placeholder="Ex.: 123456"
+            value={op}
+            disabled={bloqueado}
+            onChange={(e) => {
+              setOp(e.target.value.replace(/\D/g, "").slice(0, 8));
+              if (fase === "erro") setFase("preenchendo");
+            }}
+            onBlur={() => {
+              if (rascunhoRef.current) sincronizar();
+              else if (opValida(op)) garantirRascunho().then(avancar).catch(() => {});
+            }}
+          />
+          {op.length > 0 && !opValida(op) && <p className="ajuda alerta">A OP tem de 4 a 8 dígitos.</p>}
+          {rascunhoId && opValida(op) && <p className="ajuda rascunho-salvo">Rascunho salvo. As fotos sobem assim que escolhidas.</p>}
+        </section>
 
-      <BlocoFotos
-        titulo={`Formulário ${CODIGO_FORMULARIO}`}
-        instrucao="Fotografe o formulário preenchido. Se usou frente e verso, tire uma foto de cada lado."
-        rotuloBotao="Fotografar formulário"
-        anexos={formularios}
-        contador={formularios.length ? `${plural(formularios.length, "folha do formulário anexada", "folhas do formulário anexadas")}` : "Nenhuma foto do formulário"}
-        aoAdicionar={adicionar("FORMULARIO")}
-        aoRemover={remover("FORMULARIO")}
-        desabilitado={ocupado}
-      />
+        <section className="bloco bloco-obs">
+          <label htmlFor="obs">
+            <h2>
+              Observações <span className="opcional">(opcional)</span>
+            </h2>
+          </label>
+          <textarea
+            id="obs"
+            rows={4}
+            maxLength={MAX_OBSERVACOES}
+            value={observacoes}
+            disabled={bloqueado}
+            onChange={(e) => {
+              setObservacoes(e.target.value);
+              if (fase === "erro") setFase("preenchendo");
+            }}
+            onBlur={() => sincronizar()}
+          />
+        </section>
 
-      <BlocoFotos
-        titulo="Peças acabadas"
-        instrucao="Fotografe as peças. Toque de novo no botão para adicionar mais fotos."
-        rotuloBotao="Fotografar peças"
-        anexos={pecas}
-        contador={pecas.length ? plural(pecas.length, "foto das peças anexada", "fotos das peças anexadas") : "Nenhuma foto das peças"}
-        aoAdicionar={adicionar("PECA")}
-        aoRemover={remover("PECA")}
-        desabilitado={ocupado}
-      />
-
-      <section className="bloco">
-        <label htmlFor="obs">
-          <h2>
-            Observações <span className="opcional">(opcional)</span>
-          </h2>
-        </label>
-        <textarea
-          id="obs"
-          rows={4}
-          maxLength={MAX_OBSERVACOES}
-          value={observacoes}
-          disabled={ocupado}
-          onChange={(e) => {
-            setObservacoes(e.target.value);
-            alterou();
-          }}
-        />
-      </section>
-
-      {aviso && (
-        <p className="aviso" role="status">
-          {aviso}
-        </p>
-      )}
-
-      <div className="barra-envio">
-        {ocupado || fase === "erro" ? (
-          <div className="progresso" role="status" aria-live="polite">
-            <div
-              className={`trilho${fase === "gerando" ? " animado" : ""}`}
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(progresso * 100)}
-            >
-              <div className="preenchimento" style={{ width: `${Math.round(progresso * 100)}%` }} />
-            </div>
-            <p>
-              {fase === "erro" ? (
-                <span className="alerta">{mensagemErro}</span>
-              ) : (
-                <>
-                  {etapa} <strong>{Math.round(progresso * 100)}%</strong>
-                </>
-              )}
-            </p>
-          </div>
-        ) : (
-          faltando.length > 0 && <p className="faltando">Falta: {faltando.join(", ")}.</p>
+        {aviso && (
+          <p className="aviso" role="status">
+            {aviso}
+          </p>
         )}
-        <button type="submit" className="botao-enviar" disabled={!podeEnviar}>
-          {fase === "erro" ? "Tentar novamente" : ocupado ? "Enviando…" : "Gerar laudo"}
-        </button>
+
+        <div className="barra-envio">
+          {ocupado || fase === "erro" ? (
+            <div className="progresso" role="status" aria-live="polite">
+              {ocupado && (
+                <div className="trilho animado" role="progressbar" aria-label="Gerando o PDF">
+                  <div className="preenchimento" style={{ width: "100%" }} />
+                </div>
+              )}
+              <p>{fase === "erro" ? <span className="alerta">{mensagemErro}</span> : "Montando o PDF do laudo…"}</p>
+            </div>
+          ) : (
+            faltando.length > 0 && <p className="faltando">Falta: {faltando.join(", ")}.</p>
+          )}
+          <button type="submit" className="botao-enviar" disabled={!podeGerar}>
+            {fase === "erro" ? "Tentar novamente" : ocupado ? "Gerando…" : "Gerar laudo"}
+          </button>
+        </div>
+      </div>
+
+      <div className="coluna-fotos">
+        <BlocoFotos
+          tipo="FORMULARIO"
+          titulo={`Formulário ${CODIGO_FORMULARIO}`}
+          instrucao="Fotografe o formulário preenchido. Se usou frente e verso, tire uma foto de cada lado."
+          rotuloBotao="Fotografar formulário"
+          fotos={formularios}
+          opInformada={opValida(op) || Boolean(rascunhoId)}
+          desabilitado={bloqueado}
+          aoAdicionar={adicionar("FORMULARIO")}
+          aoRemover={remover}
+          aoTentarDeNovo={tentarDeNovo}
+        />
+        <BlocoFotos
+          tipo="PECA"
+          titulo="Peças acabadas"
+          instrucao="Fotografe as peças. Toque de novo no botão para adicionar mais fotos."
+          rotuloBotao="Fotografar peças"
+          fotos={pecas}
+          opInformada={opValida(op) || Boolean(rascunhoId)}
+          desabilitado={bloqueado}
+          aoAdicionar={adicionar("PECA")}
+          aoRemover={remover}
+          aoTentarDeNovo={tentarDeNovo}
+        />
       </div>
     </form>
   );

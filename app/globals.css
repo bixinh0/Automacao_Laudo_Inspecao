@@ -300,6 +300,120 @@ textarea {
   cursor: pointer;
 }
 
+/* Estado de cada foto: prévia local enquanto sobe, miniatura do servidor quando pronta */
+.miniaturas .sem-previa {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 1.6rem;
+  opacity: 0.5;
+}
+.foto:not(.foto-pronta) img {
+  filter: saturate(0.6) brightness(0.85);
+}
+.foto-removendo {
+  opacity: 0.45;
+}
+.foto-erro {
+  outline: 3px solid var(--vermelho);
+  outline-offset: -3px;
+}
+.estado-foto {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 4px 6px 5px 26px;
+  background: linear-gradient(transparent, rgba(14, 42, 71, 0.85) 40%);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.foto-erro .estado-foto {
+  background: linear-gradient(transparent, rgba(179, 38, 30, 0.9) 40%);
+}
+.mini-trilho {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.35);
+  overflow: hidden;
+  margin-bottom: 3px;
+}
+.mini-trilho .preenchimento {
+  background: #7fd0ff;
+}
+.selo-foto {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #1e8e3e;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.miniaturas .tentar {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--azul);
+  color: #fff;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.falhas-foto {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--vermelho);
+  font-size: 0.88rem;
+}
+.rascunho-salvo {
+  margin: 6px 0 0;
+  color: #1e6b34;
+}
+
+/* Retrato: uma coluna na ordem OP → formulário → peças → observações; o botão fica fixo no rodapé. */
+.coluna-dados,
+.coluna-fotos {
+  display: contents;
+}
+.bloco-op {
+  order: 1;
+}
+.bloco-formulario {
+  order: 2;
+}
+.bloco-pecas {
+  order: 3;
+}
+.bloco-obs {
+  order: 4;
+}
+.formulario > * > .aviso {
+  order: 5;
+}
+.formulario .barra-envio {
+  order: 6; /* por último na coluna, quando deitado */
+  z-index: 10; /* fixa no rodapé, acima das fotos que rolam por baixo */
+}
+.miniaturas .numero {
+  z-index: 1;
+}
+
 .aviso {
   background: #fff4e5;
   border: 1px solid #f0c27b;
@@ -939,5 +1053,91 @@ textarea {
   }
   .topo nav a {
     padding: 12px 6px;
+  }
+}
+
+/* Paisagem (largura maior que a altura): duas colunas. À esquerda OP, observações e o botão
+   (fixos enquanto as fotos rolam); à direita as fotos. */
+@media (orientation: landscape) {
+  main:has(> .formulario) {
+    max-width: 1120px;
+  }
+  body:has(.formulario) .topo-conteudo {
+    max-width: 1120px;
+  }
+  .formulario {
+    display: grid;
+    grid-template-columns: minmax(260px, 2fr) minmax(0, 3fr);
+    gap: 16px;
+    align-items: start;
+    padding-bottom: 0;
+  }
+  .coluna-dados,
+  .coluna-fotos {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  .coluna-dados {
+    position: sticky;
+    top: 12px;
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+  }
+  .barra-envio {
+    position: static;
+    box-shadow: none;
+    border: 1px solid var(--borda);
+    border-radius: var(--raio);
+    padding: 12px;
+  }
+  .barra-envio > * {
+    max-width: none;
+  }
+  .coluna-dados textarea {
+    height: 6.5em;
+  }
+  .coluna-fotos .miniaturas {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  }
+}
+/* Celular deitado: pouca altura, então tudo mais compacto. */
+@media (orientation: landscape) and (max-height: 520px) {
+  main:has(> .formulario) {
+    padding-top: 8px;
+  }
+  .coluna-dados {
+    top: 8px;
+    max-height: calc(100dvh - 16px);
+    gap: 8px;
+  }
+  .coluna-fotos {
+    gap: 8px;
+  }
+  .formulario .bloco {
+    padding: 10px 12px;
+  }
+  .campo-op {
+    font-size: 1.5rem;
+    padding: 6px 10px;
+  }
+  .coluna-dados textarea {
+    height: 3.6em;
+  }
+  .botao-foto {
+    min-height: 48px;
+  }
+  .barra-envio {
+    padding: 8px 10px;
+  }
+  .formulario .botao-enviar {
+    min-height: 48px;
+  }
+  .formulario .ajuda {
+    margin-bottom: 6px;
+  }
+  .topo-conteudo {
+    height: 48px;
   }
 }

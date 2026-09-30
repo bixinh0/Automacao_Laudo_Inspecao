@@ -80,6 +80,19 @@ export async function GET() {
     checagens["migration 0003 (limpeza automática)"] = falha(e);
   }
 
+  try {
+    const [laudo, imagem] = await Promise.all([
+      supabase().from("laudo").select("status").limit(1),
+      supabase().from("imagem").select("recebida_em").limit(1),
+    ]);
+    checagens["migration 0006 (rascunho e envio imediato)"] =
+      laudo.error || imagem.error
+        ? { ok: false, detalhe: "Rode supabase/migrations/0006_rascunho_envio_imediato.sql no SQL Editor." }
+        : { ok: true, detalhe: "ok" };
+  } catch (e) {
+    checagens["migration 0006 (rascunho e envio imediato)"] = falha(e);
+  }
+
   resultado.checagens = checagens;
   const tudoOk = Object.values(checagens).every((c) => c.ok);
   resultado.conclusao = tudoOk ? "Tudo certo." : "Corrija os itens com ok: false.";

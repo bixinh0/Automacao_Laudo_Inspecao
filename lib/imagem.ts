@@ -35,3 +35,17 @@ export async function processarImagem(entrada: Buffer, tipo: TipoImagem): Promis
 export function sha256(dados: Buffer): string {
   return createHash("sha256").update(dados).digest("hex");
 }
+
+/** Maior lado da miniatura mostrada na tela de envio (cabe em telas de alta densidade). */
+export const LADO_MINIATURA = 320;
+
+export async function gerarMiniatura(jpeg: Buffer): Promise<Buffer> {
+  return sharp(jpeg)
+    .resize({ width: LADO_MINIATURA, height: LADO_MINIATURA, fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 70 })
+    .toBuffer();
+}
+
+export function paraDataUrl(jpeg: Buffer): string {
+  return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+}
