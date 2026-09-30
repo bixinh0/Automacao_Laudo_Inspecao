@@ -171,13 +171,10 @@ const servidor = http.createServer(async (req, res) => {
         const resultado = [];
         for (const d of lista) {
           if (rest[1] === "laudo" && !/^[0-9]{4,8}$/.test(d.numero_op)) return json(res, 400, { message: "check violation" });
-          if (rest[1] === "imagem" && !conflito && tabela.some((l) => l.laudo_id === d.laudo_id && l.tipo === d.tipo && l.ordem === d.ordem)) {
-            return json(res, 409, { code: "23505", message: "duplicate key value violates unique constraint" });
-          }
           let existente = conflito && tabela.find((l) => conflito.split(",").every((c) => String(l[c]) === String(d[c])));
           if (existente) Object.assign(existente, d);
           else {
-            existente = { id: randomUUID(), criado_em: new Date().toISOString(), ...(rest[1] === "laudo" ? { caminho_pdf: null, observacoes: null, status: "RASCUNHO" } : {}), ...(rest[1] === "imagem" ? { hash_sha256: null, largura: null, altura: null, recebida_em: null } : {}), ...(rest[1] === "profiles" ? { papel: "USUARIO", situacao: "PENDENTE", senha_provisoria: false, provisoria_expira: null, motivo_recusa: null, decidido_por: null, decidido_em: null } : {}), ...d };
+            existente = { id: randomUUID(), criado_em: new Date().toISOString(), ...(rest[1] === "laudo" ? { caminho_pdf: null, observacoes: null } : {}), ...(rest[1] === "profiles" ? { papel: "USUARIO", situacao: "PENDENTE", senha_provisoria: false, provisoria_expira: null, motivo_recusa: null, decidido_por: null, decidido_em: null } : {}), ...d };
             tabela.push(existente);
           }
           resultado.push(existente);

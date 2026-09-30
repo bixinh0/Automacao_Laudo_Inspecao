@@ -5,7 +5,7 @@ import { BUCKET, supabase } from "./supabase";
  * Mantém o bucket dentro do plano gratuito do Supabase (1 GB).
  *
  * Roda depois de cada laudo emitido (sem atrasar a resposta):
- *  1. apaga rascunhos abandonados há mais de um dia (fotos enviadas sem gerar o PDF);
+ *  1. apaga envios abandonados há mais de um dia (fotos enviadas sem gerar o PDF);
  *  2. se o espaço passar de LIMITE_ARMAZENAMENTO_MB, apaga os PDFs mais antigos
  *     e marca o laudo com pdf_removido_em. O registro continua no histórico.
  *
@@ -35,15 +35,6 @@ async function apagarPasta(prefixo: string) {
   if (data?.length) await storage.remove(data.map((f) => `${prefixo}/${f.name}`));
 }
 
-/** Apaga os arquivos de trabalho de um laudo (originais, fotos processadas e miniaturas); o PDF fica. */
-export async function apagarArquivosRascunho(laudoId: string): Promise<void> {
-  try {
-    await Promise.all(["brutos", "fotos", "miniaturas"].map((pasta) => apagarPasta(`${laudoId}/${pasta}`)));
-  } catch (e) {
-    console.error(`Laudo ${laudoId}: arquivos de trabalho não removidos (a limpeza automática tenta de novo):`, e);
-  }
-}
-
 export async function limparArmazenamento(): Promise<{ abandonados: number; pdfsRemovidos: number }> {
   const resultado = { abandonados: 0, pdfsRemovidos: 0 };
   try {
@@ -56,7 +47,7 @@ export async function limparArmazenamento(): Promise<{ abandonados: number; pdfs
       .limit(20)
       .returns<{ id: string }[]>();
     for (const { id } of abandonados ?? []) {
-      await apagarArquivosRascunho(id);
+      await apagarPasta(`${id}/brutos`);
       await supabase().from("laudo").delete().eq("id", id);
       resultado.abandonados++;
     }

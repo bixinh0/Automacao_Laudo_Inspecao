@@ -69,44 +69,23 @@ Exemplos: 15 fotos → 9 + 6; 30 fotos → 9 + 9 + 9 + 3.
 
 ## Como funciona o envio
 
-Cada foto sobe **assim que é escolhida**, com barra de progresso própria, e o servidor devolve a miniatura
-que aparece na tela. Ao tocar em **Gerar laudo**, as fotos já estão no servidor e só falta montar o PDF.
-
-1. **OP informada** (quando a pessoa para de digitar ou sai do campo): o laudo é criado como **rascunho** no
-   banco (`laudo.status = RASCUNHO`), com a autora. Fotos escolhidas antes da OP esperam com o aviso
-   "Aguardando OP" e sobem sozinhas depois.
-2. **Cada foto** ganha uma vaga no rascunho (linha em `imagem`, na ordem da escolha) e uma URL de envio assinada.
-   O celular reduz a foto e a envia **direto ao Supabase Storage**. A Vercel limita cada requisição a 4,5 MB, e uma
-   foto de celular pode passar disso. São 3 envios por vez.
-3. **Envio concluído**: o servidor gira, reduz, comprime, calcula o SHA-256, grava a foto processada e uma
-   miniatura, e devolve a miniatura para a tela.
-4. **Remover** uma foto (mesmo no meio do envio) cancela o envio e apaga a linha e os arquivos dela.
-5. **Gerar laudo**: o servidor confere se a lista de fotos da tela é a mesma do banco, monta o PDF, grava só o
-   PDF, marca o laudo como `EMITIDO` e apaga as fotos de trabalho.
+A Vercel limita cada requisição a 4,5 MB, e uma foto de celular pode passar disso. Por isso as fotos vão do
+navegador **direto para o Supabase Storage**, por URLs de envio assinadas:
 
 ```
-Navegador                            Servidor (Vercel)                   Supabase
-   │ POST  /api/laudos {OP} ─────────► cria o rascunho ────────────────► laudo (RASCUNHO)
-   │ PATCH /api/laudos/{id} ─────────► OP e observações enquanto digita
-   │ POST  /api/laudos/{id}/imagens ─► reserva as fotos ───────────────► imagem (sem hash ainda)
-   │ ◄────────────── URLs assinadas
-   │ reduz e envia (PUT, com progresso) ───────────────────────────────► Storage {id}/brutos/
-   │ POST  …/imagens/{foto} ─────────► processa (sharp, SHA-256) ──────► {id}/fotos/ + {id}/miniaturas/
-   │ ◄────────────── miniatura                                           imagem (hash, dimensões)
-   │ DELETE …/imagens/{foto} ────────► remove foto e arquivos
-   │ POST  /api/laudos/{id}/pdf ─────► monta o PDF ────────────────────► Storage (PDF), laudo EMITIDO,
-   │                                   apaga fotos e miniaturas          depois: limpeza automática
-   │ GET   /api/laudos/{id}/pdf ─────► redireciona para link temporário do PDF
+Navegador                       Servidor (Vercel)                  Supabase
+   │ POST /api/laudos  ───────────► cria o laudo ─────────────────► tabela laudo
+   │ ◄──────────────── URLs assinadas (uma por foto)
+   │ reduz a foto no celular e envia (PUT) ────────────────────────► Storage (brutos/)
+   │   … 3 fotos por vez, com barra de progresso …
+   │ POST /api/laudos/{id}/pdf ────► baixa as fotos, gira, reduz,
+   │                                 hash, monta o PDF ────────────► Storage (PDF) + tabela imagem
+   │                                 apaga as fotos brutas;         + laudo.caminho_pdf
+   │                                 depois: limpeza automática
+   │ GET  /api/laudos/{id}/pdf ────► redireciona para link temporário do PDF
 ```
 
-**Recarregar a página não perde nada**: OP, observações e o rascunho ficam no `sessionStorage` da aba. Ao
-recarregar, a tela busca o rascunho e mostra as fotos já enviadas com as miniaturas do servidor. Uma foto que estava
-no meio do envio é processada se chegou inteira; se não chegou, sai da lista com um aviso. Só a autora acessa o
-próprio rascunho. Rascunhos não emitidos são apagados pela limpeza automática depois de um dia.
-
-**Celular deitado** (ou qualquer tela mais larga que alta): duas colunas. À esquerda ficam OP, observações e o
-botão, sempre à vista; à direita, as fotos.
-
+Se a conexão cair no meio, **Tentar novamente** continua de onde parou (as fotos já enviadas não são reenviadas).
 O navegador nunca recebe chave do Supabase. O link de download do PDF é gerado a cada clique em
 **Baixar PDF** e vale 24 horas (`VALIDADE_DOWNLOAD_S` em `lib/laudos.ts`).
 
@@ -177,7 +156,7 @@ depois de cada laudo emitido, se o bucket passar de `LIMITE_ARMAZENAMENTO_MB` (p
 antigos são apagados até voltar a caber. O laudo continua no histórico como **PDF arquivado**, com os hashes das
 fotos no banco. Com 600 laudos/mês, cada PDF fica disponível por **cerca de 5 semanas** — baixe o **ZIP do dia**
 (ou da semana, dia a dia) e guarde no drive, que passa a ser o arquivo definitivo. O histórico mostra o espaço em
-uso e desde quando há PDFs disponíveis. A limpeza também apaga rascunhos abandonados (fotos enviadas sem gerar o PDF)
+uso e desde quando há PDFs disponíveis. A limpeza também apaga envios abandonados (fotos enviadas sem gerar o PDF)
 com mais de um dia.
 
 Requer a migration [`0003_capacidade.sql`](supabase/migrations/0003_capacidade.sql); sem ela, nada é apagado.
@@ -278,10 +257,8 @@ Tenha este código num repositório seu no GitHub (pode ser privado).
    Isso cria as tabelas `laudo` e `imagem` e o bucket privado `laudos`. Depois, uma query de cada vez, rode
    [`0002_envio_onedrive.sql`](supabase/migrations/0002_envio_onedrive.sql),
    [`0003_capacidade.sql`](supabase/migrations/0003_capacidade.sql),
-   [`0004_autenticacao.sql`](supabase/migrations/0004_autenticacao.sql) (usuários, papéis, RLS e auditoria),
-   [`0005_departamento_logistica.sql`](supabase/migrations/0005_departamento_logistica.sql) e
-   [`0006_rascunho_envio_imediato.sql`](supabase/migrations/0006_rascunho_envio_imediato.sql) (rascunho e envio
-   imediato das fotos).
+   [`0004_autenticacao.sql`](supabase/migrations/0004_autenticacao.sql) (usuários, papéis, RLS e auditoria) e
+   [`0005_departamento_logistica.sql`](supabase/migrations/0005_departamento_logistica.sql).
 3. Confira em **Storage** que o bucket `laudos` aparece, marcado como privado.
 4. Em **Project Settings → API** (ou **API Keys**), copie:
    - a **Project URL** (`https://xxxx.supabase.co`);
@@ -338,7 +315,7 @@ Dica: no celular, use "Adicionar à tela inicial" no menu do navegador para ter 
 npm install
 npm test            # testes da grade, do PDF, das regras de conta e da matriz de permissões
 npm run test:banco  # migrations + RLS + gatilhos num PostgreSQL local (PGHOST/PGPORT/PGUSER)
-npm run test:e2e    # autenticação e tela de envio no navegador (em pé e deitado), contra um Supabase simulado
+npm run test:e2e    # critérios de aceite da autenticação no navegador, contra um Supabase simulado
 npm run exemplos    # gera PDFs de exemplo em exemplos/ com 1, 2, 3, 4, 7, 15 e 30 fotos sintéticas
 npm run exemplos -- 5 12   # quantidades escolhidas
 npm run dev         # servidor local (precisa de .env.local com as variáveis do Supabase)
@@ -360,15 +337,14 @@ app/
   (app)/page.tsx                 tela de envio
   (app)/laudos/[id]/page.tsx     confirmação
   (app)/historico/page.tsx       histórico com busca
-  api/laudos/…                   rascunho, reservar/confirmar/remover foto, gerar e baixar PDF
+  api/laudos/…                   criar laudo, processar foto, gerar e baixar PDF
   api/auth/…                     entrar, cadastro, sair, trocar senha
   api/usuarios/[id]              ações da gestão de usuários (permissão conferida em toda chamada)
   api/perfil                     o próprio usuário edita nome e departamento
   (app)/onedrive/page.tsx        conectar OneDrive e reenviar pendentes
   api/onedrive/…                 conectar, retorno da Microsoft, pendentes, desconectar
   api/laudos/zip                 lista os PDFs de um dia com links temporários
-components/FormularioEnvio.tsx   tela de envio (fila de fotos, progresso por foto, restauração, duas colunas)
-lib/envio.ts                     estados das fotos, pendências e rascunho no sessionStorage (funções puras)
+components/FormularioEnvio.tsx   formulário (câmera, miniaturas, progresso, retomada)
 lib/layout.ts                    alocação procedural das fotos (função pura, testada)
 lib/reduzirFoto.ts               redução da foto no celular antes do envio
 lib/imagem.ts                    sharp: EXIF, redução, JPEG, SHA-256

@@ -10,8 +10,5 @@ trap 'psql -q -d postgres -c "drop database if exists $BANCO" >/dev/null' EXIT
 rodar() { psql -v ON_ERROR_STOP=1 -q -d "$BANCO" -f "$1" > /dev/null; }
 rodar supabase/testes/supabase_simulado.sql
 for m in supabase/migrations/*.sql; do rodar "$m"; echo "migration ok: $(basename "$m")"; done
-# As migrations dizem "pode ser rodada de novo": confere rodando a mais nova uma segunda vez.
-ULTIMA=$(ls supabase/migrations/*.sql | tail -1); rodar "$ULTIMA"; echo "migration rodada de novo sem erro: $(basename "$ULTIMA")"
-psql -v ON_ERROR_STOP=1 -q -d "$BANCO" -f supabase/testes/rascunho.sql 2>&1 >/dev/null | sed 's/^psql:[^ ]* NOTICE:  //'
 psql -v ON_ERROR_STOP=1 -q -d "$BANCO" -f supabase/testes/permissoes.sql 2>&1 >/dev/null | sed 's/^psql:[^ ]* NOTICE:  //'
 echo "Todas as regras de permissão do banco passaram."

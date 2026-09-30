@@ -1,25 +1,18 @@
 import "server-only";
-import { randomUUID } from "node:crypto";
-import { gerarMiniatura, paraDataUrl, processarImagem, sha256 } from "./imagem";
+import { processarImagem } from "./imagem";
 import { acessoOneDrive } from "./integracao";
-import { apagarArquivosRascunho } from "./manutencao";
 import { enviarArquivo, subpastasDoDia } from "./onedrive";
 import { diaLocal, nomesUnicos } from "./pdf/formato";
 import { gerarPdfLaudo, type ImagemPdf } from "./pdf/gerar";
-import { CODIGO_FORMULARIO, limiteFotos, type TipoImagem } from "./regras";
+import type { TipoImagem } from "./regras";
 import { BUCKET, supabase } from "./supabase";
-
-export type StatusLaudo = "RASCUNHO" | "EMITIDO";
 
 export interface Laudo {
   id: string;
   numeroOP: string;
   observacoes: string | null;
-  /** Rascunho: quando foi criado. Emitido: quando o PDF foi gerado. */
   criadoEm: string;
   caminhoPdf: string | null;
-  /** RASCUNHO enquanto recebe fotos; EMITIDO depois de gerar o PDF (migration 0006). */
-  status: StatusLaudo;
   /** Envio ao OneDrive (colunas da migration 0002; ausentes antes dela). */
   onedriveEnviadoEm: string | null;
   onedriveUrl: string | null;
@@ -27,7 +20,6 @@ export interface Laudo {
   /** Quando o PDF foi apagado pela limpeza automática para liberar espaço (migration 0003). */
   pdfRemovidoEm: string | null;
   /** Quem emitiu (migration 0004); nulo nos laudos anteriores à autenticação. */
-  criadoPor: string | null;
   criadoPorNome: string | null;
 }
 
@@ -36,22 +28,10 @@ export interface Imagem {
   laudoId: string;
   tipo: TipoImagem;
   caminhoArquivo: string;
-  /** Hash e dimensões ficam nulos enquanto a foto não chega e não é processada. */
-  hashSha256: string | null;
-  largura: number | null;
-  altura: number | null;
+  hashSha256: string;
+  largura: number;
+  altura: number;
   ordem: number;
-  recebidaEm: string | null;
-}
-
-/** Foto de um rascunho como a tela de envio a vê. */
-export interface FotoRascunho {
-  id: string;
-  tipo: TipoImagem;
-  ordem: number;
-  recebida: boolean;
-  /** JPEG pequeno em data URL; nulo enquanto a foto não foi processada. */
-  miniatura: string | null;
 }
 
 /** Erro com mensagem que pode ser mostrada ao usuário e código HTTP. */
@@ -70,12 +50,10 @@ type LinhaLaudo = {
   observacoes: string | null;
   criado_em: string;
   caminho_pdf: string | null;
-  status?: StatusLaudo;
   onedrive_enviado_em?: string | null;
   onedrive_url?: string | null;
   onedrive_erro?: string | null;
   pdf_removido_em?: string | null;
-  criado_por?: string | null;
   criado_por_nome?: string | null;
 };
 type LinhaImagem = {
@@ -83,11 +61,10 @@ type LinhaImagem = {
   laudo_id: string;
   tipo: TipoImagem;
   caminho_arquivo: string;
-  hash_sha256: string | null;
-  largura: number | null;
-  altura: number | null;
+  hash_sha256: string;
+  largura: number;
+  altura: number;
   ordem: number;
-  recebida_em?: string | null;
 };
 
 function paraLaudo(l: LinhaLaudo): Laudo {
@@ -97,12 +74,10 @@ function paraLaudo(l: LinhaLaudo): Laudo {
     observacoes: l.observacoes,
     criadoEm: l.criado_em,
     caminhoPdf: l.caminho_pdf,
-    status: l.status ?? (l.caminho_pdf ? "EMITIDO" : "RASCUNHO"),
     onedriveEnviadoEm: l.onedrive_enviado_em ?? null,
     onedriveUrl: l.onedrive_url ?? null,
     onedriveErro: l.onedrive_erro ?? null,
     pdfRemovidoEm: l.pdf_removido_em ?? null,
-    criadoPor: l.criado_por ?? null,
     criadoPorNome: l.criado_por_nome ?? null,
   };
 }
@@ -117,37 +92,28 @@ function paraImagem(l: LinhaImagem): Imagem {
     largura: l.largura,
     altura: l.altura,
     ordem: l.ordem,
-    // Antes da migration 0006 toda foto gravada já estava processada.
-    recebidaEm: l.recebida_em === undefined ? (l.hash_sha256 ? "" : null) : l.recebida_em,
   };
 }
 
 // Organização no bucket:
-//   {laudoId}/brutos/{imagemId}          foto como o navegador enviou; apagada ao ser processada
-//   {laudoId}/fotos/{imagemId}.jpg       foto processada (rotação, tamanho, JPEG), usada no PDF
-//   {laudoId}/miniaturas/{imagemId}.jpg  miniatura mostrada na tela de envio
-//   {laudoId}/laudo-OP-{numero}.pdf      o laudo, com as fotos embutidas
-// Ao emitir, só o PDF fica: brutos, fotos e miniaturas são apagados.
-const caminhoBruto = (laudoId: string, imagemId: string) => `${laudoId}/brutos/${imagemId}`;
-const caminhoFoto = (laudoId: string, imagemId: string) => `${laudoId}/fotos/${imagemId}.jpg`;
-const caminhoMiniatura = (laudoId: string, imagemId: string) => `${laudoId}/miniaturas/${imagemId}.jpg`;
+//   {laudoId}/brutos/{TIPO}-{ordem}          foto enviada pelo navegador, apagada ao gerar o PDF
+//   {laudoId}/laudo-OP-{numero}.pdf          o laudo, com as fotos embutidas
+function caminhoBruto(laudoId: string, tipo: TipoImagem, ordem: number) {
+  return `${laudoId}/brutos/${tipo}-${ordem}`;
+}
 
 export function nomeArquivoPdf(numeroOP: string) {
   return `laudo-OP-${numeroOP}.pdf`;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const uuidValido = (id: string) => UUID.test(id);
-
-/** Cria o laudo como rascunho assim que a OP é informada; as fotos chegam depois. */
-export async function criarRascunho(
+export async function criarLaudo(
   numeroOP: string,
   observacoes: string | null,
   autor: { id: string; nome: string },
 ): Promise<Laudo> {
   const { data, error } = await supabase()
     .from("laudo")
-    .insert({ numero_op: numeroOP, observacoes, status: "RASCUNHO", criado_por: autor.id, criado_por_nome: autor.nome })
+    .insert({ numero_op: numeroOP, observacoes, criado_por: autor.id, criado_por_nome: autor.nome })
     .select()
     .single<LinhaLaudo>();
   if (error) throw error;
@@ -155,35 +121,10 @@ export async function criarRascunho(
 }
 
 export async function buscarLaudo(id: string): Promise<Laudo | null> {
-  if (!uuidValido(id)) return null;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
   const { data, error } = await supabase().from("laudo").select().eq("id", id).maybeSingle<LinhaLaudo>();
   if (error) throw error;
   return data ? paraLaudo(data) : null;
-}
-
-/** Rascunho que pertence a `autorId` e ainda aceita mudanças; senão, erro com mensagem para a tela. */
-export async function rascunhoDoAutor(id: string, autorId: string): Promise<Laudo> {
-  const laudo = await buscarLaudo(id);
-  // Rascunho de outra pessoa responde como inexistente: não revela que existe.
-  if (!laudo || laudo.criadoPor !== autorId) throw new ErroLaudo("Rascunho não encontrado. Comece um novo laudo.", 404);
-  if (laudo.status !== "RASCUNHO" || laudo.caminhoPdf) throw new ErroLaudo("Este laudo já foi emitido.", 409);
-  return laudo;
-}
-
-export async function atualizarRascunho(
-  laudo: Laudo,
-  dados: { numeroOP: string; observacoes: string | null },
-): Promise<Laudo> {
-  const { data, error } = await supabase()
-    .from("laudo")
-    .update({ numero_op: dados.numeroOP, observacoes: dados.observacoes })
-    .eq("id", laudo.id)
-    .eq("status", "RASCUNHO")
-    .select()
-    .maybeSingle<LinhaLaudo>();
-  if (error) throw error;
-  if (!data) throw new ErroLaudo("Este laudo já foi emitido.", 409);
-  return paraLaudo(data);
 }
 
 /** Laudos emitidos (com PDF), do mais recente ao mais antigo. */
@@ -213,252 +154,120 @@ export async function listarImagens(laudoId: string): Promise<Imagem[]> {
   return data.map(paraImagem);
 }
 
+/** URL para o navegador enviar a foto direto ao Storage (sem passar pelo servidor). */
+export async function criarUrlEnvio(laudoId: string, tipo: TipoImagem, ordem: number): Promise<string> {
+  const { data, error } = await supabase()
+    .storage.from(BUCKET)
+    .createSignedUploadUrl(caminhoBruto(laudoId, tipo, ordem), { upsert: true });
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+type Item = { tipo: TipoImagem; ordem: number };
+
+function descrever(item: Item) {
+  return item.tipo === "FORMULARIO" ? `folha ${item.ordem} do formulário` : `foto ${item.ordem} das peças`;
+}
+
 /** Executa `tarefa` para cada item com no máximo `limite` ao mesmo tempo, mantendo a ordem do resultado. */
-async function emParalelo<T, R>(itens: T[], limite: number, tarefa: (item: T, indice: number) => Promise<R>): Promise<R[]> {
+async function emParalelo<T, R>(itens: T[], limite: number, tarefa: (item: T) => Promise<R>): Promise<R[]> {
   const saida: R[] = new Array(itens.length);
   let proximo = 0;
   await Promise.all(
     Array.from({ length: Math.min(limite, itens.length) }, async () => {
       while (proximo < itens.length) {
         const i = proximo++;
-        saida[i] = await tarefa(itens[i], i);
+        saida[i] = await tarefa(itens[i]);
       }
     }),
   );
   return saida;
 }
 
-async function lerMiniatura(laudoId: string, imagemId: string): Promise<string | null> {
-  const { data, error } = await supabase().storage.from(BUCKET).download(caminhoMiniatura(laudoId, imagemId));
-  if (error || !data) return null;
-  return paraDataUrl(Buffer.from(await data.arrayBuffer()));
-}
-
-/** Fotos do rascunho, na ordem em que foram escolhidas, com a miniatura de cada uma já processada. */
-export async function fotosDoRascunho(laudoId: string): Promise<FotoRascunho[]> {
-  const imagens = await listarImagens(laudoId);
-  return emParalelo(imagens, 6, async (i) => ({
-    id: i.id,
-    tipo: i.tipo,
-    ordem: i.ordem,
-    recebida: i.recebidaEm !== null,
-    miniatura: i.recebidaEm !== null ? await lerMiniatura(laudoId, i.id) : null,
-  }));
-}
-
-export interface VagaEnvio {
-  id: string;
-  tipo: TipoImagem;
-  ordem: number;
-  /** URL assinada para o navegador enviar a foto direto ao Storage. */
-  url: string;
-}
-
 /**
- * Reserva `quantidade` fotos no rascunho, na ordem em que foram escolhidas, e
- * devolve uma URL de envio para cada uma. As fotos vão do navegador direto ao
- * Storage, porque a Vercel limita o corpo de uma requisição a 4,5 MB.
- */
-export async function reservarImagens(laudoId: string, tipo: TipoImagem, quantidade: number): Promise<VagaEnvio[]> {
-  const limite = limiteFotos(tipo);
-  for (let tentativa = 1; ; tentativa++) {
-    const { data: atuais, error } = await supabase()
-      .from("imagem")
-      .select("ordem")
-      .eq("laudo_id", laudoId)
-      .eq("tipo", tipo)
-      .returns<{ ordem: number }[]>();
-    if (error) throw error;
-    if (atuais.length + quantidade > limite) {
-      throw new ErroLaudo(
-        tipo === "FORMULARIO" ? `No máximo ${limite} folhas do formulário por laudo.` : `No máximo ${limite} fotos das peças por laudo.`,
-      );
-    }
-    const inicio = atuais.reduce((m, a) => Math.max(m, a.ordem), 0) + 1;
-    const vagas = Array.from({ length: quantidade }, (_, i) => ({ id: randomUUID(), ordem: inicio + i }));
-    const { error: erroReserva } = await supabase()
-      .from("imagem")
-      .insert(vagas.map((v) => ({ id: v.id, laudo_id: laudoId, tipo, ordem: v.ordem, caminho_arquivo: caminhoBruto(laudoId, v.id) })));
-    // Outra aba reservou a mesma ordem ao mesmo tempo: tenta com a próxima livre.
-    if (erroReserva?.code === "23505" && tentativa < 4) continue;
-    if (erroReserva) throw erroReserva;
-
-    const storage = supabase().storage.from(BUCKET);
-    return Promise.all(
-      vagas.map(async (v) => {
-        const { data, error: erroUrl } = await storage.createSignedUploadUrl(caminhoBruto(laudoId, v.id), { upsert: true });
-        if (erroUrl) throw erroUrl;
-        return { id: v.id, tipo, ordem: v.ordem, url: data.signedUrl };
-      }),
-    );
-  }
-}
-
-async function buscarImagem(laudoId: string, imagemId: string): Promise<Imagem> {
-  if (!uuidValido(imagemId)) throw new ErroLaudo("Foto não encontrada.", 404);
-  const { data, error } = await supabase()
-    .from("imagem")
-    .select()
-    .eq("id", imagemId)
-    .eq("laudo_id", laudoId)
-    .maybeSingle<LinhaImagem>();
-  if (error) throw error;
-  if (!data) throw new ErroLaudo("Foto não encontrada. Ela pode ter sido removida.", 404);
-  return paraImagem(data);
-}
-
-/**
- * Chamado pelo navegador quando o envio de uma foto termina: corrige a
- * rotação, reduz e comprime (sharp), calcula o SHA-256, grava a foto
- * processada e a miniatura, e vincula tudo à linha da foto no banco.
- * Pode ser repetido sem efeito colateral.
- */
-export async function confirmarImagem(laudoId: string, imagemId: string): Promise<FotoRascunho> {
-  const imagem = await buscarImagem(laudoId, imagemId);
-  const resposta = (miniatura: string | null): FotoRascunho => ({
-    id: imagem.id,
-    tipo: imagem.tipo,
-    ordem: imagem.ordem,
-    recebida: true,
-    miniatura,
-  });
-  if (imagem.recebidaEm !== null) return resposta(await lerMiniatura(laudoId, imagemId));
-
-  const storage = supabase().storage.from(BUCKET);
-  const { data: bruto, error: erroDownload } = await storage.download(caminhoBruto(laudoId, imagemId));
-  if (erroDownload || !bruto) throw new ErroLaudo("A foto não chegou ao servidor. Envie de novo.", 409);
-
-  let processada;
-  try {
-    processada = await processarImagem(Buffer.from(await bruto.arrayBuffer()), imagem.tipo);
-  } catch {
-    throw new ErroLaudo("Não foi possível ler esta foto. Remova e envie em JPEG ou PNG.", 422);
-  }
-  const miniatura = await gerarMiniatura(processada.buffer);
-  const arquivos = [caminhoFoto(laudoId, imagemId), caminhoMiniatura(laudoId, imagemId)];
-  const envios = await Promise.all([
-    storage.upload(arquivos[0], processada.buffer, { contentType: "image/jpeg", upsert: true }),
-    storage.upload(arquivos[1], miniatura, { contentType: "image/jpeg", upsert: true }),
-  ]);
-  const falha = envios.find((e) => e.error)?.error;
-  if (falha) throw falha;
-
-  const { data: linhas, error } = await supabase()
-    .from("imagem")
-    .update({
-      caminho_arquivo: arquivos[0],
-      hash_sha256: processada.hashSha256,
-      largura: processada.largura,
-      altura: processada.altura,
-      recebida_em: new Date().toISOString(),
-    })
-    .eq("id", imagemId)
-    .eq("laudo_id", laudoId)
-    .select("id")
-    .returns<{ id: string }[]>();
-  if (error) throw error;
-  if (!linhas.length) {
-    // Removida enquanto era processada: não deixa arquivo órfão.
-    await storage.remove([...arquivos, caminhoBruto(laudoId, imagemId)]);
-    throw new ErroLaudo("Foto não encontrada. Ela pode ter sido removida.", 404);
-  }
-  const { error: erroLimpeza } = await storage.remove([caminhoBruto(laudoId, imagemId)]);
-  if (erroLimpeza) console.error(`Foto ${imagemId}: original não removido (sai na emissão ou na limpeza):`, erroLimpeza);
-  return resposta(paraDataUrl(miniatura));
-}
-
-/** Tira a foto do rascunho (banco e arquivos). Remover de novo não dá erro. */
-export async function removerImagem(laudoId: string, imagemId: string): Promise<void> {
-  if (!uuidValido(imagemId)) throw new ErroLaudo("Foto não encontrada.", 404);
-  const { error } = await supabase().from("imagem").delete().eq("id", imagemId).eq("laudo_id", laudoId);
-  if (error) throw error;
-  const { error: erroArquivos } = await supabase()
-    .storage.from(BUCKET)
-    .remove([caminhoBruto(laudoId, imagemId), caminhoFoto(laudoId, imagemId), caminhoMiniatura(laudoId, imagemId)]);
-  if (erroArquivos) console.error(`Foto ${imagemId}: arquivos não removidos (saem na emissão ou na limpeza):`, erroArquivos);
-}
-
-function descrever(tipo: TipoImagem, posicao: number) {
-  return tipo === "FORMULARIO" ? `folha ${posicao} do formulário` : `foto ${posicao} das peças`;
-}
-
-/**
- * Emite o laudo: junta as fotos já processadas do rascunho, gera o PDF e grava
+ * Monta o laudo: baixa as fotos que o navegador enviou, corrige rotação,
+ * reduz e comprime (sharp), calcula o SHA-256 de cada uma, gera o PDF e grava
  * só o PDF no Storage. As fotos ficam embutidas nele; no banco ficam o hash e
  * as dimensões de cada uma. Guardar as fotos à parte dobraria o espaço usado
  * e não caberia no plano gratuito com ~600 laudos por mês.
  *
- * `pedido.imagens` é a lista de fotos que a tela mostra: se o banco tiver
- * outra (mudança em outra aba), nada é emitido.
+ * `esperado` (enviado pelo navegador) garante que nenhuma foto ficou para trás.
  */
-export async function emitirLaudo(
-  laudoId: string,
-  autorId: string,
-  pedido: { numeroOP: string; observacoes: string | null; imagens: string[] },
-): Promise<Laudo> {
+export async function emitirLaudo(laudoId: string, esperado: { formularios: number; pecas: number }): Promise<Laudo> {
   const existente = await buscarLaudo(laudoId);
-  if (!existente || existente.criadoPor !== autorId) throw new ErroLaudo("Rascunho não encontrado. Comece um novo laudo.", 404);
-  if (existente.caminhoPdf) return existente; // nova tentativa depois de a resposta se perder
-
-  const imagens = await listarImagens(laudoId);
-  if (imagens.some((i) => i.recebidaEm === null)) throw new ErroLaudo("Aguarde o envio de todas as fotos terminar.", 409);
-  const pedidas = new Set(pedido.imagens);
-  if (pedidas.size !== pedido.imagens.length || pedidas.size !== imagens.length || imagens.some((i) => !pedidas.has(i.id))) {
-    throw new ErroLaudo("As fotos deste laudo mudaram em outra aba ou aparelho. Recarregue a página para conferir.", 409);
+  if (!existente) throw new ErroLaudo("Laudo não encontrado.", 404);
+  if (existente.caminhoPdf) return existente;
+  if (esperado.formularios < 1 || esperado.pecas < 1) {
+    throw new ErroLaudo("O laudo precisa de ao menos uma foto do formulário e uma foto das peças.");
   }
-  const formularios = imagens.filter((i) => i.tipo === "FORMULARIO");
-  const pecas = imagens.filter((i) => i.tipo === "PECA");
-  if (formularios.length < 1) throw new ErroLaudo(`Anexe a foto do formulário ${CODIGO_FORMULARIO}.`);
-  if (pecas.length < 1) throw new ErroLaudo("Anexe ao menos uma foto das peças.");
 
+  const itens: Item[] = [
+    ...Array.from({ length: esperado.formularios }, (_, i) => ({ tipo: "FORMULARIO" as const, ordem: i + 1 })),
+    ...Array.from({ length: esperado.pecas }, (_, i) => ({ tipo: "PECA" as const, ordem: i + 1 })),
+  ];
   const storage = supabase().storage.from(BUCKET);
-  const baixar = (lista: Imagem[]) =>
-    emParalelo(lista, 6, async (img, i): Promise<ImagemPdf> => {
-      const faltou = new ErroLaudo(`A ${descrever(img.tipo, i + 1)} não foi encontrada no servidor. Remova-a e envie de novo.`, 409);
-      const { data, error } = await storage.download(caminhoFoto(laudoId, img.id));
-      if (error || !data) throw faltou;
-      const dados = Buffer.from(await data.arrayBuffer());
-      if (sha256(dados) !== img.hashSha256) throw faltou;
-      return { id: img.id, dados, largura: img.largura!, altura: img.altura! };
-    });
-  const [paraFormulario, paraPecas] = await Promise.all([baixar(formularios), baixar(pecas)]);
 
-  // A data do laudo (PDF, histórico e ZIP do dia) é a da emissão, não a do rascunho.
-  const emitidoEm = new Date();
-  const pdf = await gerarPdfLaudo({
-    numeroOP: pedido.numeroOP,
-    observacoes: pedido.observacoes,
-    emitidoEm,
-    formularios: paraFormulario,
-    pecas: paraPecas,
+  const brutos = await emParalelo(itens, 6, async (item) => {
+    const { data, error } = await storage.download(caminhoBruto(laudoId, item.tipo, item.ordem));
+    if (error || !data) throw new ErroLaudo(`A ${descrever(item)} não chegou ao servidor. Toque em Tentar novamente.`, 409);
+    return Buffer.from(await data.arrayBuffer());
   });
 
-  const caminho = `${laudoId}/${nomeArquivoPdf(pedido.numeroOP)}`;
+  // Duas por vez: o sharp já usa vários núcleos, e assim a memória fica sob controle.
+  const processadas = await emParalelo(itens, 2, async (item) => {
+    try {
+      return await processarImagem(brutos[itens.indexOf(item)], item.tipo);
+    } catch {
+      throw new ErroLaudo(`Não foi possível ler a ${descrever(item)}. Envie em JPEG ou PNG.`, 422);
+    }
+  });
+
+  const paraPdf = (tipo: TipoImagem): ImagemPdf[] =>
+    itens.flatMap((item, i) =>
+      item.tipo === tipo
+        ? [{ id: `${tipo}-${item.ordem}`, dados: processadas[i].buffer, largura: processadas[i].largura, altura: processadas[i].altura }]
+        : [],
+    );
+  const pdf = await gerarPdfLaudo({
+    numeroOP: existente.numeroOP,
+    observacoes: existente.observacoes,
+    emitidoEm: new Date(),
+    formularios: paraPdf("FORMULARIO"),
+    pecas: paraPdf("PECA"),
+  });
+
+  const caminho = `${laudoId}/${nomeArquivoPdf(existente.numeroOP)}`;
   const { error: erroUpload } = await storage.upload(caminho, pdf, { contentType: "application/pdf", upsert: true });
   if (erroUpload) throw erroUpload;
 
-  // caminho_arquivo passa a apontar para o PDF, onde a imagem está embutida.
-  const { error: erroImagens } = await supabase().from("imagem").update({ caminho_arquivo: caminho }).eq("laudo_id", laudoId);
+  // caminho_arquivo aponta para o PDF, onde a imagem está embutida.
+  const { error: erroImagens } = await supabase()
+    .from("imagem")
+    .upsert(
+      itens.map((item, i) => ({
+        laudo_id: laudoId,
+        tipo: item.tipo,
+        ordem: item.ordem,
+        caminho_arquivo: caminho,
+        hash_sha256: processadas[i].hashSha256,
+        largura: processadas[i].largura,
+        altura: processadas[i].altura,
+      })),
+      { onConflict: "laudo_id,tipo,ordem" },
+    );
   if (erroImagens) throw erroImagens;
 
   const { data, error } = await supabase()
     .from("laudo")
-    .update({
-      numero_op: pedido.numeroOP,
-      observacoes: pedido.observacoes,
-      caminho_pdf: caminho,
-      status: "EMITIDO",
-      criado_em: emitidoEm.toISOString(),
-    })
+    .update({ caminho_pdf: caminho })
     .eq("id", laudoId)
-    .eq("status", "RASCUNHO")
     .select()
-    .maybeSingle<LinhaLaudo>();
+    .single<LinhaLaudo>();
   if (error) throw error;
 
-  await apagarArquivosRascunho(laudoId);
-  // Sem linha: outra requisição emitiu este laudo no meio do caminho; vale a dela.
-  return data ? paraLaudo(data) : ((await buscarLaudo(laudoId)) as Laudo);
+  const { error: erroLimpeza } = await storage.remove(itens.map((item) => caminhoBruto(laudoId, item.tipo, item.ordem)));
+  if (erroLimpeza) console.error(`Laudo ${laudoId}: fotos brutas não removidas (a limpeza automática tenta de novo):`, erroLimpeza);
+  return paraLaudo(data);
 }
 
 /** Laudos emitidos num dia (AAAA-MM-DD, fuso da fábrica), do mais antigo ao mais novo. */

@@ -17,9 +17,6 @@ export function explicarErroConfiguracao(e: unknown): string | null {
   if (/Configure SUPABASE_URL/.test(msg)) {
     return "Servidor sem configuração: defina SUPABASE_URL e SUPABASE_SECRET_KEY na Vercel e faça Redeploy.";
   }
-  if (/PGRST204|42703|column .* (of|does not exist)|status_laudo|recebida_em/i.test(msg)) {
-    return "Banco desatualizado: rode no SQL Editor do Supabase as migrations mais novas de supabase/migrations (ex.: 0006_rascunho_envio_imediato.sql).";
-  }
   if (/PGRST205|42P01|schema cache|does not exist/i.test(msg)) {
     return "Tabelas não encontradas no Supabase: rode o arquivo supabase/migrations/0001_estrutura_inicial.sql no SQL Editor.";
   }
